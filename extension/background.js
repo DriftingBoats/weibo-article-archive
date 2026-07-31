@@ -1,26 +1,11 @@
+import { senderIsAllowed } from './security.js';
+
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let lastImportedCookie = '';
 
 function validArticleId(value) {
   return typeof value === 'string' && /^\d{15,30}$/.test(value);
-}
-
-function senderIsAllowed(sender) {
-  const senderLocation = sender.origin || sender.url || sender.tab?.url;
-  if (!senderLocation) return false;
-  const url = new URL(senderLocation);
-  if (
-    url.protocol === 'http:' &&
-    ['localhost', '127.0.0.1'].includes(url.hostname) &&
-    url.port === '4173'
-  ) {
-    return true;
-  }
-  return (
-    url.origin === 'https://driftingboats.github.io' &&
-    url.pathname.startsWith('/weibo-article-archive/')
-  );
 }
 
 function endpoints(articleId, token) {

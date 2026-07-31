@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "微存抓取扩展",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "为微存网站读取用户有权访问的微博长文。数据只返回当前浏览器中的微存页面。",
   "permissions": [
     "cookies"
