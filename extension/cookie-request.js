@@ -1,4 +1,9 @@
-const COOKIE_RULE_ID = 81021;
+let nextCookieRuleId = 810_210;
+
+function allocateCookieRuleId() {
+  nextCookieRuleId = nextCookieRuleId >= 819_999 ? 810_210 : nextCookieRuleId + 1;
+  return nextCookieRuleId;
+}
 
 export function buildCookieHeader(cookies = []) {
   return cookies
@@ -7,10 +12,10 @@ export function buildCookieHeader(cookies = []) {
     .join('; ');
 }
 
-export function createCookieRule(url, cookieHeader, extensionId) {
+export function createCookieRule(url, cookieHeader, extensionId, ruleId = 810_210) {
   const target = new URL(url);
   return {
-    id: COOKIE_RULE_ID,
+    id: ruleId,
     priority: 10_000,
     action: {
       type: 'modifyHeaders',
@@ -35,7 +40,8 @@ export async function fetchWithBrowserCookies(
     cookiesApi = chrome.cookies,
     rulesApi = chrome.declarativeNetRequest,
     extensionId = chrome.runtime.id,
-    fetchImpl = fetch
+    fetchImpl = fetch,
+    ruleIdProvider = allocateCookieRuleId
   } = {}
 ) {
   const cookies = await cookiesApi.getAll({ url });
@@ -48,9 +54,10 @@ export async function fetchWithBrowserCookies(
     };
   }
 
+  const ruleId = ruleIdProvider();
   await rulesApi.updateSessionRules({
-    removeRuleIds: [COOKIE_RULE_ID],
-    addRules: [createCookieRule(url, cookieHeader, extensionId)]
+    removeRuleIds: [ruleId],
+    addRules: [createCookieRule(url, cookieHeader, extensionId, ruleId)]
   });
   try {
     return {
@@ -60,7 +67,7 @@ export async function fetchWithBrowserCookies(
     };
   } finally {
     await rulesApi.updateSessionRules({
-      removeRuleIds: [COOKIE_RULE_ID]
+      removeRuleIds: [ruleId]
     });
   }
 }

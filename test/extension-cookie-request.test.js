@@ -45,13 +45,14 @@ describe('authenticated extension requests', () => {
         },
         rulesApi: { updateSessionRules },
         extensionId: 'extension-id',
-        fetchImpl
+        fetchImpl,
+        ruleIdProvider: () => 810_999
       }
     );
     expect(result.cookieRuleApplied).toBe(true);
     expect(updateSessionRules).toHaveBeenCalledTimes(2);
     expect(updateSessionRules.mock.calls[1][0]).toEqual({
-      removeRuleIds: [81021]
+      removeRuleIds: [810999]
     });
   });
 });

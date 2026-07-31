@@ -1,10 +1,79 @@
 import { senderIsAllowed } from './security.js';
-import { getWeiboSessionStatus } from './session.js';
+import {
+  getWeiboSessionStatus,
+  interpretWeiboSessionProbe
+} from './session.js';
 import { fetchWithBrowserCookies } from './cookie-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let lastImportedCookie = '';
+let sessionCache = null;
+const SESSION_CACHE_MS = 5_000;
+const SESSION_PROBE_URL = 'https://weibo.com/ajax/config/get';
+
+async function verifiedWeiboSessionStatus({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && sessionCache && now - sessionCache.checkedAt < SESSION_CACHE_MS) {
+    return sessionCache;
+  }
+
+  const localStatus = await getWeiboSessionStatus();
+  if (!localStatus.available) {
+    sessionCache = {
+      ...localStatus,
+      available: false,
+      verified: true,
+      checkedAt: now
+    };
+    return sessionCache;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const { response } = await fetchWithBrowserCookies(SESSION_PROBE_URL, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      redirect: 'follow',
+      signal: controller.signal,
+      referrer: 'https://weibo.com/',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    let payload = null;
+    try {
+      payload = JSON.parse(await response.text());
+    } catch {
+      // The status code can still conclusively identify an expired session.
+    }
+    const probe = interpretWeiboSessionProbe(response.status, payload);
+    sessionCache = {
+      ...localStatus,
+      available: probe.authenticated,
+      verified: probe.verified,
+      checkedAt: now
+    };
+    return sessionCache;
+  } catch {
+    sessionCache = {
+      ...localStatus,
+      available: false,
+      verified: false,
+      checkedAt: now
+    };
+    return sessionCache;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+chrome.cookies.onChanged.addListener(() => {
+  sessionCache = null;
+});
 
 function validArticleId(value) {
   return typeof value === 'string' && /^\d{15,30}$/.test(value);
@@ -118,7 +187,7 @@ async function fetchEndpoint(payload) {
       status: response.status,
       body,
       endpointIndex,
-      session: await getWeiboSessionStatus(),
+      session: await verifiedWeiboSessionStatus(),
       cookieCount,
       cookieRuleApplied
     };
@@ -199,13 +268,13 @@ async function fetchImage(payload) {
 async function handleMessage(message, sender) {
   if (message?.type === 'GET_WEIBO_SESSION_STATUS') {
     if (sender.id !== chrome.runtime.id) throw new Error('只有微存扩展可以读取登录状态。');
-    return getWeiboSessionStatus();
+    return verifiedWeiboSessionStatus({ force: true });
   }
   if (!senderIsAllowed(sender)) throw new Error('当前网站没有连接扩展的权限。');
   if (message?.type === 'PING') {
     return {
       version: chrome.runtime.getManifest().version,
-      session: await getWeiboSessionStatus()
+      session: await verifiedWeiboSessionStatus({ force: true })
     };
   }
   if (message?.type === 'FETCH_ARTICLE_ENDPOINT') {

@@ -83,9 +83,11 @@ function loadingPage() {
 function extensionBadge() {
   const label = !state.extensionConnected
     ? '等待连接抓取扩展'
+    : state.weiboSession?.verified === false
+      ? '扩展已连接 · 登录状态待确认'
     : state.weiboSession?.available
-      ? '扩展已连接 · 微博登录可用'
-      : '扩展已连接 · 未检测到微博登录';
+      ? '扩展已连接 · 微博已登录'
+      : '扩展已连接 · 微博未登录';
   return `
     <span class="extension-status ${state.extensionConnected ? 'is-connected' : 'is-disconnected'}">
       <i aria-hidden="true"></i>

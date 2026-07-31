@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeWeiboCookies } from '../extension/session.js';
+import {
+  interpretWeiboSessionProbe,
+  summarizeWeiboCookies
+} from '../extension/session.js';
 
 describe('Weibo session detection', () => {
   it('detects a usable login cookie without exposing cookie values', () => {
@@ -13,6 +16,25 @@ describe('Weibo session detection', () => {
       loginCookieCount: 1
     });
     expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('uses the Weibo server response rather than stale local cookies', () => {
+    expect(interpretWeiboSessionProbe(403, { error: 'Forbidden' })).toEqual({
+      authenticated: false,
+      verified: true
+    });
+    expect(interpretWeiboSessionProbe(200, {
+      data: { login: true, uid: '123456' }
+    })).toEqual({
+      authenticated: true,
+      verified: true
+    });
+    expect(interpretWeiboSessionProbe(200, {
+      data: { login: false }
+    })).toEqual({
+      authenticated: false,
+      verified: true
+    });
   });
 
   it('does not treat ordinary preference cookies as a login', () => {

@@ -30,3 +30,24 @@ export async function getWeiboSessionStatus(cookiesApi = chrome.cookies) {
   ]);
   return summarizeWeiboCookies(groups.flat());
 }
+
+export function interpretWeiboSessionProbe(status, payload = null) {
+  if ([401, 403].includes(status)) {
+    return { authenticated: false, verified: true };
+  }
+  if (status < 200 || status >= 300) {
+    return { authenticated: false, verified: false };
+  }
+  const data = payload?.data && typeof payload.data === 'object'
+    ? payload.data
+    : payload || {};
+  const login = data.login ?? data.isLogin ?? data.is_login;
+  const uid = data.uid ?? data.user?.id ?? data.user?.idstr;
+  if ([true, 1, '1'].includes(login) || (uid && String(uid) !== '0')) {
+    return { authenticated: true, verified: true };
+  }
+  if ([false, 0, '0'].includes(login)) {
+    return { authenticated: false, verified: true };
+  }
+  return { authenticated: false, verified: false };
+}

@@ -118,6 +118,11 @@ h1 {
   box-shadow: 0 0 0 0.24rem #fff1f3;
 }
 
+.session.is-unknown .status-dot {
+  background: #b56b00;
+  box-shadow: 0 0 0 0.24rem #fff6e8;
+}
+
 .session strong,
 .session p {
   display: block;

@@ -5,10 +5,16 @@ const sessionCopy = document.querySelector('#session-copy');
 document.querySelector('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 
 function renderSession(status) {
+  if (status.verified === false) {
+    session.className = 'session is-unknown';
+    sessionTitle.textContent = '暂时无法验证微博登录';
+    sessionCopy.textContent = '请检查网络，稍后重新打开扩展。';
+    return;
+  }
   session.className = `session ${status.available ? 'is-ready' : 'is-missing'}`;
-  sessionTitle.textContent = status.available ? '微博登录状态可用' : '未检测到微博登录';
+  sessionTitle.textContent = status.available ? '微博已登录' : '微博未登录';
   sessionCopy.textContent = status.available
-    ? `检测到 ${status.loginCookieCount} 项登录凭据，抓取请求会自动使用。`
+    ? '微博服务器已确认当前登录状态，抓取请求会自动使用。'
     : '公开内容仍可抓取；登录后可读取你有权访问的内容。';
 }
 
