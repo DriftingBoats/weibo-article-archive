@@ -1,6 +1,7 @@
 import { senderIsAllowed } from './security.js';
 import {
   getWeiboSessionStatus,
+  isWeiboLoginCookieChange,
   interpretWeiboSessionProbe,
   shouldImportManualCookies,
   WEIBO_SESSION_PROBE_URL
@@ -15,7 +16,8 @@ import {
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let sessionCache = null;
-const SESSION_CACHE_MS = 5_000;
+const SESSION_CACHE_KEY = 'weicunWeiboSession';
+const SESSION_CACHE_MS = 12 * 60 * 60 * 1_000;
 
 function safeVerificationError(error) {
   return String(error?.message || error || '未知错误')
@@ -23,17 +25,49 @@ function safeVerificationError(error) {
     .slice(0, 180);
 }
 
+async function readSessionCache() {
+  if (sessionCache) return sessionCache;
+  try {
+    const stored = await chrome.storage.session.get(SESSION_CACHE_KEY);
+    const value = stored?.[SESSION_CACHE_KEY];
+    if (value && typeof value.checkedAt === 'number') sessionCache = value;
+  } catch {
+    // Memory caching still works when session storage is unavailable.
+  }
+  return sessionCache;
+}
+
+async function rememberSessionStatus(value) {
+  sessionCache = value;
+  try {
+    await chrome.storage.session.set({ [SESSION_CACHE_KEY]: value });
+  } catch {
+    // Keep the in-memory value when session storage is unavailable.
+  }
+  return value;
+}
+
+function invalidateSessionCache() {
+  sessionCache = null;
+  try {
+    chrome.storage.session.remove(SESSION_CACHE_KEY);
+  } catch {
+    // Nothing else is required when session storage is unavailable.
+  }
+}
+
 async function verifiedWeiboSessionStatus({ force = false } = {}) {
   const now = Date.now();
-  if (!force && sessionCache && now - sessionCache.checkedAt < SESSION_CACHE_MS) {
-    return sessionCache;
+  const cached = await readSessionCache();
+  if (!force && cached && now - cached.checkedAt < SESSION_CACHE_MS) {
+    return cached;
   }
 
   let localStatus;
   try {
     localStatus = await getWeiboSessionStatus();
   } catch (error) {
-    sessionCache = {
+    return rememberSessionStatus({
       available: false,
       verified: false,
       cookieCount: 0,
@@ -41,18 +75,16 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       verification: 'cookie-api-error',
       verificationError: safeVerificationError(error),
       checkedAt: now
-    };
-    return sessionCache;
+    });
   }
   if (!localStatus.available) {
-    sessionCache = {
+    return rememberSessionStatus({
       ...localStatus,
       available: false,
       verified: true,
       verification: 'no-login-cookie',
       checkedAt: now
-    };
-    return sessionCache;
+    });
   }
 
   let pageVerificationError = '';
@@ -71,14 +103,13 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       pageProbe = interpretWeiboSessionProbe(pageResult.status, pagePayload);
     }
     if (pageProbe.verified) {
-      sessionCache = {
+      return rememberSessionStatus({
         ...localStatus,
         available: pageProbe.authenticated,
         verified: true,
         verification: pageResult.source,
         checkedAt: now
-      };
-      return sessionCache;
+      });
     }
   } catch (error) {
     pageVerificationError = safeVerificationError(error);
@@ -107,7 +138,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       // The status code can still conclusively identify an expired session.
     }
     const probe = interpretWeiboSessionProbe(response.status, payload);
-    sessionCache = {
+    return rememberSessionStatus({
       ...localStatus,
       available: probe.authenticated,
       verified: probe.authenticated,
@@ -116,10 +147,9 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
         ? ''
         : pageVerificationError || '微博页面与扩展请求均未返回用户 UID。',
       checkedAt: now
-    };
-    return sessionCache;
+    });
   } catch (error) {
-    sessionCache = {
+    return rememberSessionStatus({
       ...localStatus,
       available: false,
       verified: false,
@@ -129,15 +159,14 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
         safeVerificationError(error)
       ].filter(Boolean).join('；'),
       checkedAt: now
-    };
-    return sessionCache;
+    });
   } finally {
     clearTimeout(timeout);
   }
 }
 
-chrome.cookies.onChanged.addListener(() => {
-  sessionCache = null;
+chrome.cookies.onChanged.addListener((changeInfo) => {
+  if (isWeiboLoginCookieChange(changeInfo)) invalidateSessionCache();
 });
 
 function validArticleId(value) {
@@ -228,7 +257,7 @@ async function importCookies(cookieString) {
       }
     }
   }
-  if (imported > 0) sessionCache = null;
+  if (imported > 0) invalidateSessionCache();
   return imported > 0;
 }
 
@@ -389,13 +418,20 @@ async function fetchImage(payload) {
 async function handleMessage(message, sender) {
   if (message?.type === 'GET_WEIBO_SESSION_STATUS') {
     if (sender.id !== chrome.runtime.id) throw new Error('只有微存扩展可以读取登录状态。');
-    return verifiedWeiboSessionStatus({ force: true });
+    return verifiedWeiboSessionStatus({
+      force: Boolean(message.payload?.force)
+    });
   }
   if (!senderIsAllowed(sender)) throw new Error('当前网站没有连接扩展的权限。');
   if (message?.type === 'PING') {
+    const cached = await readSessionCache();
     return {
       version: chrome.runtime.getManifest().version,
-      session: await verifiedWeiboSessionStatus({ force: true })
+      session: cached || {
+        available: false,
+        verified: false,
+        verification: 'pending'
+      }
     };
   }
   if (message?.type === 'FETCH_ARTICLE_ENDPOINT') {

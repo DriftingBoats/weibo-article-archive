@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isWeiboLoginCookieChange,
   interpretWeiboSessionProbe,
   shouldImportManualCookies,
   summarizeWeiboCookies,
@@ -24,6 +25,21 @@ describe('Weibo session detection', () => {
       available: false,
       verified: true
     })).toBe(true);
+  });
+
+  it('invalidates cached verification only for core Weibo login cookies', () => {
+    expect(isWeiboLoginCookieChange({
+      cookie: { name: 'SUB', domain: '.weibo.com' }
+    })).toBe(true);
+    expect(isWeiboLoginCookieChange({
+      cookie: { name: 'MLOGIN', domain: '.weibo.cn' }
+    })).toBe(true);
+    expect(isWeiboLoginCookieChange({
+      cookie: { name: 'XSRF-TOKEN', domain: '.weibo.com' }
+    })).toBe(false);
+    expect(isWeiboLoginCookieChange({
+      cookie: { name: 'SUB', domain: '.example.com' }
+    })).toBe(false);
   });
 
   it('detects a usable login cookie without exposing cookie values', () => {

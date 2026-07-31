@@ -11,6 +11,14 @@ export function shouldImportManualCookies(cookieString, currentSession) {
     currentSession?.verified === true;
 }
 
+export function isWeiboLoginCookieChange(changeInfo) {
+  const cookie = changeInfo?.cookie;
+  if (!cookie?.name || !cookie?.domain) return false;
+  const isWeiboDomain = /(^|\.)weibo\.(com|cn)$/i.test(cookie.domain);
+  if (!isWeiboDomain) return false;
+  return PRIMARY_LOGIN_COOKIE_NAMES.has(cookie.name) || cookie.name === 'MLOGIN';
+}
+
 export function summarizeWeiboCookies(cookies = []) {
   const unique = new Map();
   for (const cookie of cookies) {

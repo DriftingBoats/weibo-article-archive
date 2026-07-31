@@ -39,7 +39,7 @@ function renderSession(status) {
     : '公开内容仍可抓取；登录后可读取你有权访问的内容。';
 }
 
-async function refreshSession() {
+async function refreshSession(force = false) {
   if (refreshing) return;
   refreshing = true;
   refreshButton.disabled = true;
@@ -50,7 +50,8 @@ async function refreshSession() {
   sessionCopy.textContent = '正在微博页面环境中确认当前用户…';
   try {
     const response = await sendRuntimeMessage({
-      type: 'GET_WEIBO_SESSION_STATUS'
+      type: 'GET_WEIBO_SESSION_STATUS',
+      payload: { force }
     });
     if (!response?.ok) throw new Error(response?.error || '没有收到状态');
     renderSession(response.result);
@@ -76,6 +77,5 @@ document.querySelector('#open-weibo').addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://weibo.com/' });
 });
 
-chrome.cookies.onChanged.addListener(refreshSession);
-refreshButton.addEventListener('click', refreshSession);
-refreshSession();
+refreshButton.addEventListener('click', () => refreshSession(true));
+refreshSession(false);

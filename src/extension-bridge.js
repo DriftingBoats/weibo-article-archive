@@ -18,6 +18,17 @@ export class ExtensionBridge {
       this.window.dispatchEvent(new CustomEvent('weicun:extension-ready'));
       return;
     }
+    if (event.data.type === 'CONTEXT_INVALIDATED') {
+      this.connected = false;
+      this.sessionStatus = null;
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error('扩展已更新，请刷新微存页面后重试。'));
+      }
+      this.pending.clear();
+      this.window.dispatchEvent(new CustomEvent('weicun:extension-invalidated'));
+      return;
+    }
     const pending = this.pending.get(event.data.requestId);
     if (!pending) return;
     clearTimeout(pending.timeout);

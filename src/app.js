@@ -83,7 +83,7 @@ function loadingPage() {
 function extensionBadge() {
   const label = !state.extensionConnected
     ? '等待连接抓取扩展'
-    : state.weiboSession?.verified === false
+    : state.weiboSession?.verified !== true
       ? '扩展已连接 · 登录状态待确认'
     : state.weiboSession?.available
       ? '扩展已连接 · 微博已登录'
@@ -751,6 +751,17 @@ async function initialize() {
       replacement.innerHTML = extensionBadge().trim();
       badge.replaceWith(replacement.content.firstElementChild);
     }
+  });
+  window.addEventListener('weicun:extension-invalidated', () => {
+    state.extensionConnected = false;
+    const badge = document.querySelector('.extension-status');
+    if (badge) badge.outerHTML = extensionBadge();
+    showToast(
+      '扩展刚刚更新，需要刷新当前页面才能重新连接。',
+      '立即刷新',
+      () => location.reload(),
+      15_000
+    );
   });
   window.addEventListener('hashchange', route);
   await route();
