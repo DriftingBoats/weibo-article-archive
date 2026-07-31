@@ -4,6 +4,10 @@ import {
   interpretWeiboSessionProbe
 } from './session.js';
 import { fetchWithBrowserCookies } from './cookie-request.js';
+import {
+  fetchInWeiboPage,
+  shouldRetryInPageContext
+} from './page-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -50,7 +54,24 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
     } catch {
       // The status code can still conclusively identify an expired session.
     }
-    const probe = interpretWeiboSessionProbe(response.status, payload);
+    let probe = interpretWeiboSessionProbe(response.status, payload);
+    if (!probe.authenticated && localStatus.available) {
+      try {
+        const pageResult = await fetchInWeiboPage(SESSION_PROBE_URL, {
+          Accept: 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest'
+        });
+        let pagePayload = null;
+        try {
+          pagePayload = JSON.parse(pageResult.body);
+        } catch {
+          // Status-only responses remain useful for detecting logout.
+        }
+        probe = interpretWeiboSessionProbe(pageResult.status, pagePayload);
+      } catch {
+        // Keep the extension-origin probe result.
+      }
+    }
     sessionCache = {
       ...localStatus,
       available: probe.authenticated,
@@ -179,17 +200,34 @@ async function fetchEndpoint(payload) {
         ...endpoint.headers
       }
     });
-    const body = await response.text();
+    let status = response.status;
+    let body = await response.text();
+    let viaPageContext = false;
+    if (shouldRetryInPageContext(status, body)) {
+      try {
+        const pageResult = await fetchInWeiboPage(endpoint.url, {
+          Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+          ...endpoint.headers
+        });
+        status = pageResult.status;
+        body = pageResult.body;
+        viaPageContext = true;
+      } catch {
+        // Return the original response so the website can show the auth error.
+      }
+    }
     if (new Blob([body]).size > MAX_RESPONSE_BYTES) {
       throw new Error('微博返回内容过大，扩展已停止读取。');
     }
     return {
-      status: response.status,
+      status,
       body,
       endpointIndex,
       session: await verifiedWeiboSessionStatus(),
       cookieCount,
-      cookieRuleApplied
+      cookieRuleApplied,
+      viaPageContext
     };
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('连接微博超时，请稍后重试。');
