@@ -5,6 +5,12 @@ const PRIMARY_LOGIN_COOKIE_NAMES = new Set([
 
 export const WEIBO_SESSION_PROBE_URL = 'https://weibo.com/ajax/config/get_config';
 
+export function shouldImportManualCookies(cookieString, currentSession) {
+  return Boolean(String(cookieString || '').trim()) &&
+    currentSession?.available === false &&
+    currentSession?.verified === true;
+}
+
 export function summarizeWeiboCookies(cookies = []) {
   const unique = new Map();
   for (const cookie of cookies) {

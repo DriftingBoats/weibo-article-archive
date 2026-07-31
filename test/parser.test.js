@@ -42,6 +42,22 @@ describe('article parsing', () => {
     expect(parsed.nextUrl).toMatch(/2494706$/);
   });
 
+  it('parses nested long-text response variants', () => {
+    const parsed = parseJsonArticle({
+      ok: 1,
+      data: {
+        status: {
+          title: '嵌套长文',
+          longTextContent: '<p>嵌套正文</p>',
+          next_article_id: '2309405068125862494707'
+        }
+      }
+    });
+    expect(parsed.title).toBe('嵌套长文');
+    expect(parsed.content).toBe('嵌套正文');
+    expect(parsed.nextUrl).toMatch(/2494707$/);
+  });
+
   it('parses HTML content and a next link', () => {
     const parsed = parseHtmlArticle(`
       <h1 class="title">长文标题</h1>
@@ -56,6 +72,8 @@ describe('article parsing', () => {
   it('detects response types and login walls', () => {
     expect(parseArticleResponse('{"data":{"text":"正文"}}').content).toBe('正文');
     expect(looksLikeAuthWall('请登录后查看')).toBe(true);
+    expect(looksLikeAuthWall('{"ok":-100,"url":"https://weibo.com/login.php"}')).toBe(true);
+    expect(looksLikeAuthWall('{"code":100098,"msg":"访问受限"}')).toBe(true);
     expect(looksLikeAuthWall('正常正文')).toBe(false);
   });
 });

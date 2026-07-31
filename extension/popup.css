@@ -100,6 +100,11 @@ h1 {
   border-bottom: 1px solid #e8e8e8;
 }
 
+.session > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .status-dot {
   width: 0.55rem;
   height: 0.55rem;
@@ -126,6 +131,26 @@ h1 {
 .session strong,
 .session p {
   display: block;
+}
+
+.refresh-session {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.refresh-session:hover:not(:disabled) {
+  border-color: #181818;
+}
+
+.refresh-session:disabled {
+  color: #a0a0a0;
+  cursor: wait;
 }
 
 .session strong {

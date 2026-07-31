@@ -1,14 +1,16 @@
 const session = document.querySelector('#session');
 const sessionTitle = document.querySelector('#session-title');
 const sessionCopy = document.querySelector('#session-copy');
+const refreshButton = document.querySelector('#refresh-session');
+let refreshing = false;
 
 document.querySelector('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 
 function renderSession(status) {
   if (status.verified === false) {
     session.className = 'session is-unknown';
-    sessionTitle.textContent = '暂时无法验证微博登录';
-    sessionCopy.textContent = '请检查网络，稍后重新打开扩展。';
+    sessionTitle.textContent = '微博页面验证未完成';
+    sessionCopy.textContent = '请打开微博首页并保持登录，然后点击“刷新状态”。';
     return;
   }
   session.className = `session ${status.available ? 'is-ready' : 'is-missing'}`;
@@ -19,6 +21,14 @@ function renderSession(status) {
 }
 
 async function refreshSession() {
+  if (refreshing) return;
+  refreshing = true;
+  refreshButton.disabled = true;
+  refreshButton.textContent = '刷新中…';
+  session.setAttribute('aria-busy', 'true');
+  session.className = 'session';
+  sessionTitle.textContent = '正在刷新微博登录状态';
+  sessionCopy.textContent = '正在微博页面环境中确认当前用户…';
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'GET_WEIBO_SESSION_STATUS'
@@ -29,6 +39,11 @@ async function refreshSession() {
     session.className = 'session is-missing';
     sessionTitle.textContent = '暂时无法读取登录状态';
     sessionCopy.textContent = '请重新加载扩展后再试。';
+  } finally {
+    refreshing = false;
+    refreshButton.disabled = false;
+    refreshButton.textContent = '刷新状态';
+    session.removeAttribute('aria-busy');
   }
 }
 
@@ -43,4 +58,5 @@ document.querySelector('#open-weibo').addEventListener('click', () => {
 });
 
 chrome.cookies.onChanged.addListener(refreshSession);
+refreshButton.addEventListener('click', refreshSession);
 refreshSession();

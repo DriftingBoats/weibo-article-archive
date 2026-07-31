@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   fetchInWeiboPage,
+  probeWeiboSessionInPage,
   shouldRetryInPageContext
 } from '../extension/page-request.js';
 
@@ -12,6 +13,8 @@ describe('Weibo first-party request fallback', () => {
 
   it('retries login-wall bodies but not normal article responses', () => {
     expect(shouldRetryInPageContext(200, '<p>请登录后查看</p>')).toBe(true);
+    expect(shouldRetryInPageContext(200, '{"ok":-100,"url":"https://weibo.com/login.php"}')).toBe(true);
+    expect(shouldRetryInPageContext(200, '{"code":100098}')).toBe(true);
     expect(shouldRetryInPageContext(200, '{"data":{"text":"正常正文"}}')).toBe(false);
   });
 
@@ -43,5 +46,38 @@ describe('Weibo first-party request fallback', () => {
       world: 'MAIN'
     }));
     expect(remove).toHaveBeenCalledWith(42);
+  });
+
+  it('reads a confirmed uid from the first-party Weibo page', async () => {
+    const executeScript = vi.fn(async () => [{
+      result: {
+        ok: true,
+        status: 200,
+        body: '',
+        uid: '123456',
+        source: 'page-store'
+      }
+    }]);
+    const result = await probeWeiboSessionInPage({
+      tabsApi: {
+        query: async () => [{ id: 7 }],
+        get: async () => ({ id: 7, status: 'complete' }),
+        create: vi.fn(),
+        remove: vi.fn(),
+        onUpdated: {
+          addListener: () => {},
+          removeListener: () => {}
+        }
+      },
+      scriptingApi: { executeScript }
+    });
+    expect(result).toEqual(expect.objectContaining({
+      uid: '123456',
+      source: 'page-store'
+    }));
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 7 },
+      world: 'MAIN'
+    }));
   });
 });

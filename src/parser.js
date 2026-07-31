@@ -95,20 +95,47 @@ function nextUrlFromData(data) {
 }
 
 export function parseJsonArticle(payload) {
+  if (typeof payload?.data === 'string') {
+    const parsedContent = /<[^>]+>/.test(payload.data)
+      ? htmlToArchiveContent(payload.data)
+      : { content: normalizeText(payload.data), images: [] };
+    return { title: '', ...parsedContent, nextUrl: null };
+  }
+
   const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload || {};
-  const rawContent =
-    data.longTextContent ||
-    data.content ||
-    data.text ||
-    data.article?.content ||
-    '';
+  const records = [
+    data,
+    data.article,
+    data.article_data,
+    data.status,
+    data.longText,
+    data.long_text
+  ].filter((value) => value && typeof value === 'object');
+  const firstValue = (keys) => {
+    for (const record of records) {
+      for (const key of keys) {
+        if (record[key] !== undefined && record[key] !== null && record[key] !== '') {
+          return record[key];
+        }
+      }
+    }
+    return '';
+  };
+  const rawContent = firstValue([
+    'longTextContent', 'long_text_content', 'content', 'text', 'html'
+  ]);
   const parsedContent = /<[^>]+>/.test(String(rawContent))
     ? htmlToArchiveContent(String(rawContent))
     : { content: normalizeText(rawContent), images: [] };
+  let nextUrl = null;
+  for (const record of records) {
+    nextUrl = nextUrlFromData(record);
+    if (nextUrl) break;
+  }
   return {
-    title: normalizeText(data.title || data.status_title || data.page_title || ''),
+    title: normalizeText(firstValue(['title', 'status_title', 'page_title'])),
     ...parsedContent,
-    nextUrl: nextUrlFromData(data)
+    nextUrl
   };
 }
 
@@ -169,9 +196,23 @@ export function looksLikeAuthWall(raw) {
   const text = String(raw || '').replace(/\\u([0-9a-f]{4})/gi, (_, code) =>
     String.fromCharCode(Number.parseInt(code, 16))
   );
+  try {
+    const payload = JSON.parse(text);
+    if (
+      [-100, '-100'].includes(payload?.ok) ||
+      [100001, 100098, '100001', '100098'].includes(payload?.code) ||
+      /\/login\.php|passport\.weibo/i.test(String(payload?.url || ''))
+    ) {
+      return true;
+    }
+  } catch {
+    // Non-JSON responses continue through phrase matching.
+  }
   return [
     '请登录',
     '登录后查看',
+    '需要登录',
+    '请先登录',
     '微博不存在或暂无查看权限',
     '在微博客户端登录查看完整内容',
     'session expired',

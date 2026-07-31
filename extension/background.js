@@ -2,17 +2,18 @@ import { senderIsAllowed } from './security.js';
 import {
   getWeiboSessionStatus,
   interpretWeiboSessionProbe,
+  shouldImportManualCookies,
   WEIBO_SESSION_PROBE_URL
 } from './session.js';
 import { fetchWithBrowserCookies } from './cookie-request.js';
 import {
   fetchInWeiboPage,
+  probeWeiboSessionInPage,
   shouldRetryInPageContext
 } from './page-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-let lastImportedCookie = '';
 let sessionCache = null;
 const SESSION_CACHE_MS = 5_000;
 
@@ -28,9 +29,38 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       ...localStatus,
       available: false,
       verified: true,
+      verification: 'no-login-cookie',
       checkedAt: now
     };
     return sessionCache;
+  }
+
+  try {
+    const pageResult = await probeWeiboSessionInPage();
+    let pageProbe = pageResult.uid
+      ? { authenticated: true, verified: true }
+      : { authenticated: false, verified: false };
+    if (!pageResult.uid) {
+      let pagePayload = null;
+      try {
+        pagePayload = JSON.parse(pageResult.body);
+      } catch {
+        // A non-JSON response is not enough to confirm either state.
+      }
+      pageProbe = interpretWeiboSessionProbe(pageResult.status, pagePayload);
+    }
+    if (pageProbe.verified) {
+      sessionCache = {
+        ...localStatus,
+        available: pageProbe.authenticated,
+        verified: true,
+        verification: pageResult.source,
+        checkedAt: now
+      };
+      return sessionCache;
+    }
+  } catch {
+    // Fall back to an extension request, but only trust a positive UID result.
   }
 
   const controller = new AbortController();
@@ -54,28 +84,12 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
     } catch {
       // The status code can still conclusively identify an expired session.
     }
-    let probe = interpretWeiboSessionProbe(response.status, payload);
-    if (!probe.authenticated && localStatus.available) {
-      try {
-        const pageResult = await fetchInWeiboPage(WEIBO_SESSION_PROBE_URL, {
-          Accept: 'application/json, text/plain, */*',
-          'X-Requested-With': 'XMLHttpRequest'
-        });
-        let pagePayload = null;
-        try {
-          pagePayload = JSON.parse(pageResult.body);
-        } catch {
-          // Status-only responses remain useful for detecting logout.
-        }
-        probe = interpretWeiboSessionProbe(pageResult.status, pagePayload);
-      } catch {
-        // Keep the extension-origin probe result.
-      }
-    }
+    const probe = interpretWeiboSessionProbe(response.status, payload);
     sessionCache = {
       ...localStatus,
       available: probe.authenticated,
-      verified: probe.verified,
+      verified: probe.authenticated,
+      verification: probe.authenticated ? 'extension-api' : 'unavailable',
       checkedAt: now
     };
     return sessionCache;
@@ -84,6 +98,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       ...localStatus,
       available: false,
       verified: false,
+      verification: 'unavailable',
       checkedAt: now
     };
     return sessionCache;
@@ -101,27 +116,35 @@ function validArticleId(value) {
 }
 
 function endpoints(articleId) {
+  const articleReferrer = `https://weibo.com/ttarticle/p/show?id=${articleId}`;
   return [
     {
       url: `https://weibo.com/ttarticle/x/m/aj/detail?id=${articleId}`,
+      referrer: articleReferrer,
       headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/plain, */*' }
     },
     {
       url: `https://m.weibo.cn/statuses/extend?id=${articleId}`,
-      mobile: true
+      referrer: 'https://m.weibo.cn/',
+      headers: { Accept: 'application/json, text/plain, */*' }
     },
     {
       url: `https://weibo.com/ajax/statuses/longtext?id=${articleId}`,
+      referrer: articleReferrer,
       headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/plain, */*' }
     },
     {
-      url: `https://card.weibo.com/article/m/show/id/${articleId}`
+      url: `https://card.weibo.com/article/m/show/id/${articleId}`,
+      referrer: 'https://card.weibo.com/',
+      pageUrl: `https://card.weibo.com/article/m/show/id/${articleId}`
     },
     {
-      url: `https://weibo.com/ttarticle/p/show?id=${articleId}`
+      url: articleReferrer,
+      referrer: 'https://weibo.com/'
     },
     {
       url: `https://weibo.com/ajax/statuses/show?id=${articleId}`,
+      referrer: articleReferrer,
       headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/plain, */*' }
     }
   ];
@@ -145,13 +168,20 @@ function parseCookieString(value) {
 
 async function importCookies(cookieString) {
   const trimmed = String(cookieString || '').trim();
-  if (!trimmed || trimmed === lastImportedCookie) return;
+  if (!trimmed) return false;
+
+  const currentSession = await verifiedWeiboSessionStatus({ force: true });
+  if (!shouldImportManualCookies(trimmed, currentSession)) {
+    return false;
+  }
+
   const cookies = parseCookieString(trimmed);
   const origins = [
     'https://weibo.com/',
     'https://m.weibo.cn/',
     'https://card.weibo.com/'
   ];
+  let imported = 0;
   for (const cookie of cookies) {
     for (const url of origins) {
       try {
@@ -163,12 +193,14 @@ async function importCookies(cookieString) {
           secure: true,
           sameSite: 'unspecified'
         });
+        imported += 1;
       } catch {
         // Some cookies are scoped to only one Weibo host; continue with the rest.
       }
     }
   }
-  lastImportedCookie = trimmed;
+  if (imported > 0) sessionCache = null;
+  return imported > 0;
 }
 
 async function fetchEndpoint(payload) {
@@ -187,35 +219,57 @@ async function fetchEndpoint(payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
   try {
-    const { response, cookieCount, cookieRuleApplied } = await fetchWithBrowserCookies(endpoint.url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-      redirect: 'follow',
-      signal: controller.signal,
-      referrer: endpoint.mobile ? 'https://m.weibo.cn/' : 'https://weibo.com/',
-      headers: {
-        Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
-        ...endpoint.headers
-      }
-    });
-    let status = response.status;
-    let body = await response.text();
+    const requestHeaders = {
+      Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+      ...endpoint.headers
+    };
+    const cookies = await chrome.cookies.getAll({ url: endpoint.url });
+    let cookieCount = cookies.length;
+    let cookieRuleApplied = false;
+    let status = 0;
+    let body = '';
     let viaPageContext = false;
-    if (shouldRetryInPageContext(status, body)) {
-      try {
-        const pageResult = await fetchInWeiboPage(endpoint.url, {
-          Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
-          ...endpoint.headers
-        });
-        status = pageResult.status;
-        body = pageResult.body;
-        viaPageContext = true;
-      } catch {
-        // Return the original response so the website can show the auth error.
+    let pageError = '';
+
+    try {
+      const pageResult = await fetchInWeiboPage(
+        endpoint.url,
+        requestHeaders,
+        {
+          referrer: endpoint.referrer,
+          pageUrl: endpoint.pageUrl || endpoint.referrer
+        }
+      );
+      status = pageResult.status;
+      body = pageResult.body;
+      viaPageContext = true;
+    } catch (error) {
+      pageError = error.message || '微博页面请求失败。';
+    }
+
+    if (!viaPageContext || shouldRetryInPageContext(status, body)) {
+      const extensionResult = await fetchWithBrowserCookies(endpoint.url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        redirect: 'follow',
+        signal: controller.signal,
+        referrer: endpoint.referrer,
+        headers: requestHeaders
+      });
+      const extensionBody = await extensionResult.response.text();
+      if (!viaPageContext || !shouldRetryInPageContext(extensionResult.response.status, extensionBody)) {
+        status = extensionResult.response.status;
+        body = extensionBody;
+        viaPageContext = false;
       }
+      cookieCount = extensionResult.cookieCount;
+      cookieRuleApplied = extensionResult.cookieRuleApplied;
+    }
+
+    if (!body && pageError) {
+      throw new Error(pageError);
     }
     if (new Blob([body]).size > MAX_RESPONSE_BYTES) {
       throw new Error('微博返回内容过大，扩展已停止读取。');
