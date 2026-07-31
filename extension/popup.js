@@ -6,11 +6,26 @@ let refreshing = false;
 
 document.querySelector('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
 function renderSession(status) {
   if (status.verified === false) {
     session.className = 'session is-unknown';
     sessionTitle.textContent = '微博页面验证未完成';
-    sessionCopy.textContent = '请打开微博首页并保持登录，然后点击“刷新状态”。';
+    sessionCopy.textContent = status.verificationError
+      ? `失败原因：${status.verificationError}`
+      : '请打开微博首页并保持登录，然后点击“刷新状态”。';
     return;
   }
   session.className = `session ${status.available ? 'is-ready' : 'is-missing'}`;
@@ -30,15 +45,15 @@ async function refreshSession() {
   sessionTitle.textContent = '正在刷新微博登录状态';
   sessionCopy.textContent = '正在微博页面环境中确认当前用户…';
   try {
-    const response = await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: 'GET_WEIBO_SESSION_STATUS'
     });
     if (!response?.ok) throw new Error(response?.error || '没有收到状态');
     renderSession(response.result);
-  } catch {
+  } catch (error) {
     session.className = 'session is-missing';
     sessionTitle.textContent = '暂时无法读取登录状态';
-    sessionCopy.textContent = '请重新加载扩展后再试。';
+    sessionCopy.textContent = `失败原因：${error.message || '扩展后台没有返回结果。'}`;
   } finally {
     refreshing = false;
     refreshButton.disabled = false;

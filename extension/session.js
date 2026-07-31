@@ -52,8 +52,16 @@ export function interpretWeiboSessionProbe(status, payload = null) {
   const data = payload?.data && typeof payload.data === 'object'
     ? payload.data
     : payload || {};
-  const login = data.login ?? data.isLogin ?? data.is_login;
-  const uid = data.uid ?? data.user?.id ?? data.user?.idstr;
+  const nested = data.config && typeof data.config === 'object' ? data.config : {};
+  const nestedConfig = nested.config && typeof nested.config === 'object'
+    ? nested.config
+    : {};
+  const login = data.login ?? data.isLogin ?? data.is_login ??
+    nested.login ?? nested.isLogin ?? nested.is_login ??
+    nestedConfig.login ?? nestedConfig.isLogin ?? nestedConfig.is_login;
+  const uid = data.uid ?? data.user?.id ?? data.user?.idstr ??
+    nested.uid ?? nested.user?.id ?? nested.user?.idstr ??
+    nestedConfig.uid ?? nestedConfig.user?.id ?? nestedConfig.user?.idstr;
   if ([true, 1, '1'].includes(login) || (uid && String(uid) !== '0')) {
     return { authenticated: true, verified: true };
   }

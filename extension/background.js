@@ -17,13 +17,33 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let sessionCache = null;
 const SESSION_CACHE_MS = 5_000;
 
+function safeVerificationError(error) {
+  return String(error?.message || error || '未知错误')
+    .replace(/chrome-extension:\/\/[^/\s]+/gi, 'chrome-extension://…')
+    .slice(0, 180);
+}
+
 async function verifiedWeiboSessionStatus({ force = false } = {}) {
   const now = Date.now();
   if (!force && sessionCache && now - sessionCache.checkedAt < SESSION_CACHE_MS) {
     return sessionCache;
   }
 
-  const localStatus = await getWeiboSessionStatus();
+  let localStatus;
+  try {
+    localStatus = await getWeiboSessionStatus();
+  } catch (error) {
+    sessionCache = {
+      available: false,
+      verified: false,
+      cookieCount: 0,
+      loginCookieCount: 0,
+      verification: 'cookie-api-error',
+      verificationError: safeVerificationError(error),
+      checkedAt: now
+    };
+    return sessionCache;
+  }
   if (!localStatus.available) {
     sessionCache = {
       ...localStatus,
@@ -35,6 +55,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
     return sessionCache;
   }
 
+  let pageVerificationError = '';
   try {
     const pageResult = await probeWeiboSessionInPage();
     let pageProbe = pageResult.uid
@@ -59,7 +80,8 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       };
       return sessionCache;
     }
-  } catch {
+  } catch (error) {
+    pageVerificationError = safeVerificationError(error);
     // Fall back to an extension request, but only trust a positive UID result.
   }
 
@@ -90,15 +112,22 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
       available: probe.authenticated,
       verified: probe.authenticated,
       verification: probe.authenticated ? 'extension-api' : 'unavailable',
+      verificationError: probe.authenticated
+        ? ''
+        : pageVerificationError || '微博页面与扩展请求均未返回用户 UID。',
       checkedAt: now
     };
     return sessionCache;
-  } catch {
+  } catch (error) {
     sessionCache = {
       ...localStatus,
       available: false,
       verified: false,
       verification: 'unavailable',
+      verificationError: [
+        pageVerificationError,
+        safeVerificationError(error)
+      ].filter(Boolean).join('；'),
       checkedAt: now
     };
     return sessionCache;

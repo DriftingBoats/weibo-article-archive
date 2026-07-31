@@ -175,7 +175,11 @@ export async function probeWeiboSessionInPage(
         const store = app?.config?.globalProperties?.$store;
         const candidates = [
           store?.state?.config?.config?.uid,
+          store?.state?.config?.config?.user?.id,
+          store?.state?.config?.config?.user?.idstr,
           store?.state?.config?.uid,
+          store?.state?.config?.user?.id,
+          store?.state?.config?.user?.idstr,
           store?.state?.user?.id,
           store?.state?.user?.idstr,
           globalThis.$CONFIG?.uid
