@@ -3,6 +3,8 @@ const PRIMARY_LOGIN_COOKIE_NAMES = new Set([
   'WBPSESS'
 ]);
 
+export const WEIBO_SESSION_PROBE_URL = 'https://weibo.com/ajax/config/get_config';
+
 export function summarizeWeiboCookies(cookies = []) {
   const unique = new Map();
   for (const cookie of cookies) {
@@ -37,6 +39,9 @@ export function interpretWeiboSessionProbe(status, payload = null) {
   }
   if (status < 200 || status >= 300) {
     return { authenticated: false, verified: false };
+  }
+  if (payload?.ok === -100 || payload?.ok === '-100') {
+    return { authenticated: false, verified: true };
   }
   const data = payload?.data && typeof payload.data === 'object'
     ? payload.data

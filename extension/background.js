@@ -1,7 +1,8 @@
 import { senderIsAllowed } from './security.js';
 import {
   getWeiboSessionStatus,
-  interpretWeiboSessionProbe
+  interpretWeiboSessionProbe,
+  WEIBO_SESSION_PROBE_URL
 } from './session.js';
 import { fetchWithBrowserCookies } from './cookie-request.js';
 import {
@@ -14,7 +15,6 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let lastImportedCookie = '';
 let sessionCache = null;
 const SESSION_CACHE_MS = 5_000;
-const SESSION_PROBE_URL = 'https://weibo.com/ajax/config/get';
 
 async function verifiedWeiboSessionStatus({ force = false } = {}) {
   const now = Date.now();
@@ -36,7 +36,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
-    const { response } = await fetchWithBrowserCookies(SESSION_PROBE_URL, {
+    const { response } = await fetchWithBrowserCookies(WEIBO_SESSION_PROBE_URL, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -57,7 +57,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
     let probe = interpretWeiboSessionProbe(response.status, payload);
     if (!probe.authenticated && localStatus.available) {
       try {
-        const pageResult = await fetchInWeiboPage(SESSION_PROBE_URL, {
+        const pageResult = await fetchInWeiboPage(WEIBO_SESSION_PROBE_URL, {
           Accept: 'application/json, text/plain, */*',
           'X-Requested-With': 'XMLHttpRequest'
         });

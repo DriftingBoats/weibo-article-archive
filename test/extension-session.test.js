@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   interpretWeiboSessionProbe,
-  summarizeWeiboCookies
+  summarizeWeiboCookies,
+  WEIBO_SESSION_PROBE_URL
 } from '../extension/session.js';
 
 describe('Weibo session detection', () => {
+  it('uses the current first-party config endpoint', () => {
+    expect(WEIBO_SESSION_PROBE_URL).toBe('https://weibo.com/ajax/config/get_config');
+  });
+
   it('detects a usable login cookie without exposing cookie values', () => {
     const result = summarizeWeiboCookies([
       { name: 'SUB', value: 'secret', domain: '.weibo.com', path: '/', storeId: '0' },
@@ -31,6 +36,13 @@ describe('Weibo session detection', () => {
     });
     expect(interpretWeiboSessionProbe(200, {
       data: { login: false }
+    })).toEqual({
+      authenticated: false,
+      verified: true
+    });
+    expect(interpretWeiboSessionProbe(200, {
+      ok: -100,
+      url: 'https://weibo.com/login.php'
     })).toEqual({
       authenticated: false,
       verified: true
