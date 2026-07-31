@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#fbfaf7">
+    <meta
+      name="description"
+      content="微存是一个开源的微博长文保存网站，支持连载追踪、增量更新与多格式导出。"
+    >
+    <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="%BASE_URL%styles.css">
+    <title>微存｜把散落的长文收进自己的书页</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <header class="site-header">
+      <a class="brand" href="#/" data-route aria-label="微存首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>微存</span>
+      </a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#archive" data-home-link>我的归档</a>
+        <a href="#guide" data-home-link>如何使用</a>
+        <span class="not-official">非微博官方产品</span>
+      </nav>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <div id="app" aria-live="polite"></div>
+    </main>
+
+    <footer class="site-footer">
+      <p><strong>微存</strong> · 开源的微博文章归档工具</p>
+      <p>请只保存你有权访问和使用的内容，并遵守来源网站的服务条款。</p>
+    </footer>
+    <div id="toast-region" class="toast-region" aria-live="assertive"></div>
+    <noscript>请启用 JavaScript 后使用微存。</noscript>
+    <script src="/src/app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,72 @@
+:root {
+  font-family: "Avenir Next", "PingFang SC", sans-serif;
+  color: #2a2220;
+  background: #fbfaf7;
+}
+
+body {
+  width: 19rem;
+  margin: 0;
+}
+
+main {
+  padding: 1.5rem;
+}
+
+.mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  padding: 0.45rem;
+  align-content: space-between;
+  background: #c83232;
+  box-sizing: border-box;
+}
+
+.mark i {
+  height: 1px;
+  background: #fffaf5;
+}
+
+.mark i:nth-child(2) {
+  width: 68%;
+}
+
+.eyebrow {
+  margin: 1.5rem 0 0.5rem;
+  color: #b42e2e;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+h1 {
+  margin: 0;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 1.8rem;
+}
+
+p {
+  color: #665a56;
+  font-size: 0.85rem;
+  line-height: 1.75;
+}
+
+button {
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0.75rem 0;
+  border: 0;
+  background: #c83232;
+  color: #fffaf5;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+small {
+  display: block;
+  color: #8a7d78;
+  font-size: 0.68rem;
+  line-height: 1.6;
+}

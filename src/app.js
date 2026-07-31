@@ -1,0 +1,670 @@
+import { LocalArchive } from './storage.js';
+import { ExtensionBridge } from './extension-bridge.js';
+import { BrowserCrawler } from './crawler.js';
+import { downloadArchive, downloadBackup } from './export.js';
+
+const app = document.querySelector('#app');
+const toastRegion = document.querySelector('#toast-region');
+const archive = new LocalArchive();
+const bridge = new ExtensionBridge();
+const crawler = new BrowserCrawler({ archive, bridge });
+
+const state = {
+  home: { query: '', page: 1 },
+  article: null,
+  chapters: [],
+  activeChapter: 1,
+  pendingDelete: null,
+  extensionConnected: false,
+  credentials: { cookie: '', token: '' }
+};
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatDate(value) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }).format(new Date(value));
+}
+
+function excerpt(value, length = 110) {
+  const clean = String(value || '').replace(/\s+/g, ' ').trim();
+  return clean.length > length ? `${clean.slice(0, length)}…` : clean;
+}
+
+function showToast(message, actionLabel = '', onAction = null, duration = 5000) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.setAttribute('role', 'status');
+  const copy = document.createElement('span');
+  copy.textContent = message;
+  toast.append(copy);
+
+  let timer;
+  if (actionLabel && onAction) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = actionLabel;
+    button.addEventListener('click', () => {
+      clearTimeout(timer);
+      toast.remove();
+      onAction();
+    });
+    toast.append(button);
+  }
+  toastRegion.append(toast);
+  timer = setTimeout(() => toast.remove(), duration);
+  return { toast, timer };
+}
+
+function loadingPage() {
+  app.innerHTML = `
+    <div class="loading-page" aria-label="正在打开页面">
+      <div class="loading-line"></div>
+    </div>
+  `;
+}
+
+function extensionBadge() {
+  return `
+    <span class="extension-status ${state.extensionConnected ? 'is-connected' : 'is-disconnected'}">
+      <i aria-hidden="true"></i>
+      ${state.extensionConnected ? '抓取扩展已连接' : '等待连接抓取扩展'}
+    </span>
+  `;
+}
+
+function archiveItem(article, index) {
+  const author = article.author ? escapeHtml(article.author) : '作者未填写';
+  return `
+    <a class="archive-item" href="#/articles/${article.id}">
+      <span class="archive-index">${String(index).padStart(2, '0')}</span>
+      <div class="archive-main">
+        <h3 class="archive-title">${escapeHtml(article.title)}</h3>
+        <div class="archive-meta">
+          <span>${author}</span>
+          <span>${article.chapterCount || 0} 篇</span>
+          <time datetime="${escapeHtml(article.updatedAt)}">${formatDate(article.updatedAt)}</time>
+          ${article.status === 'error' ? '<span class="error-label">需要重试</span>' : ''}
+        </div>
+        ${article.description
+          ? `<p class="archive-description">${escapeHtml(excerpt(article.description))}</p>`
+          : ''}
+      </div>
+      <span class="archive-arrow" aria-hidden="true">→</span>
+    </a>
+  `;
+}
+
+function homeTemplate(data) {
+  const visibleItems = data.items.filter((item) => item.id !== state.pendingDelete);
+  const list = visibleItems.length
+    ? `<div class="archive-list">${visibleItems
+        .map((article, index) => archiveItem(article, (data.page - 1) * data.limit + index + 1))
+        .join('')}</div>`
+    : `
+      <div class="empty-state">
+        <div>
+          <strong>${state.home.query ? '没有找到相符的归档' : '书架还是空的'}</strong>
+          <p>${state.home.query
+            ? '换一个标题或作者关键词再找找。'
+            : '安装扩展后，从上方粘贴第一篇微博长文。保存内容只会留在这个浏览器里。'}</p>
+        </div>
+      </div>
+    `;
+  const pagination = data.pages > 1
+    ? `
+      <nav class="pagination" aria-label="归档分页">
+        <button type="button" data-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>← 上一页</button>
+        <span>${data.page} / ${data.pages}</span>
+        <button type="button" data-page="${data.page + 1}" ${data.page >= data.pages ? 'disabled' : ''}>下一页 →</button>
+      </nav>
+    `
+    : '';
+
+  return `
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div class="hero-topline">
+          <p class="eyebrow">LOCAL-FIRST · OPEN SOURCE</p>
+          ${extensionBadge()}
+        </div>
+        <div>
+          <h1 class="hero-title" id="hero-title">把散落的长文，收进自己的<em>书页</em>。</h1>
+          <p class="hero-copy">粘贴一篇微博长文，微存会寻找后续、整理正文。没有账号系统，没有云端数据库，所有归档都只在你的浏览器里。</p>
+        </div>
+        <div class="capture-area">
+          <form class="capture-form" id="capture-form" novalidate>
+            <div class="field">
+              <label for="article-url">微博文章链接</label>
+              <input
+                id="article-url"
+                name="url"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="https://weibo.com/ttarticle/…"
+                required
+                aria-describedby="capture-error"
+              >
+            </div>
+            <button class="primary-button" type="submit">保存到本机</button>
+          </form>
+          <p class="form-error" id="capture-error" hidden></p>
+
+          <details class="advanced-settings" id="capture-settings">
+            <summary>补充归档资料</summary>
+            <div class="advanced-grid">
+              <div class="field">
+                <label for="article-title">归档标题（可选）</label>
+                <input id="article-title" name="title" form="capture-form" placeholder="默认沿用文章标题">
+              </div>
+              <div class="field">
+                <label for="article-author">作者（可选）</label>
+                <input id="article-author" name="author" form="capture-form" placeholder="便于以后查找">
+              </div>
+            </div>
+            <div class="field">
+              <label for="article-description">归档说明（可选）</label>
+              <textarea id="article-description" name="description" form="capture-form" placeholder="记下这组文章的主题或来源"></textarea>
+            </div>
+          </details>
+
+          <details class="advanced-settings local-settings" id="local-settings">
+            <summary>本地访问设置</summary>
+            <form id="credentials-form">
+              <div class="advanced-grid">
+                <div class="field">
+                  <label for="weibo-token">微博访问 Token（可选）</label>
+                  <input
+                    id="weibo-token"
+                    name="token"
+                    type="password"
+                    autocomplete="off"
+                    value="${escapeHtml(state.credentials.token)}"
+                    placeholder="公开文章可以留空"
+                  >
+                </div>
+                <div class="field">
+                  <label for="weibo-cookie">微博 Cookie（可选）</label>
+                  <input
+                    id="weibo-cookie"
+                    name="cookie"
+                    type="password"
+                    autocomplete="off"
+                    value="${escapeHtml(state.credentials.cookie)}"
+                    placeholder="登录可见内容可能需要"
+                  >
+                </div>
+              </div>
+              <div class="settings-footer">
+                <p class="privacy-note">凭据保存在此浏览器的 IndexedDB 中。Cookie 会由扩展导入本机的微博 Cookie 存储，不会上传到微存服务器——微存没有服务器。</p>
+                <button class="secondary-button" type="submit">保存本地设置</button>
+              </div>
+            </form>
+          </details>
+
+          <div class="job-progress" id="capture-progress" hidden>
+            <span class="progress-mark" aria-hidden="true"></span>
+            <div class="progress-copy">
+              <strong>正在准备</strong>
+              <span>每完成一篇都会立即写入本机，关闭页面前请等待当前篇完成。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="archive-section" id="archive" aria-labelledby="archive-title">
+      <header class="section-heading">
+        <div>
+          <p class="section-kicker">ONLY ON THIS DEVICE</p>
+          <h2 class="section-title" id="archive-title">我的归档</h2>
+        </div>
+        <span class="archive-count">${data.total} 份本地内容</span>
+      </header>
+      <div class="archive-tools">
+        <div class="backup-actions">
+          <button class="text-button" id="backup-all" type="button">备份全部</button>
+          <label class="text-button file-button">
+            恢复备份
+            <input id="restore-backup" type="file" accept="application/json,.json">
+          </label>
+        </div>
+        <form class="search-field" id="search-form" role="search">
+          <label class="visually-hidden" for="archive-search">搜索归档</label>
+          <input id="archive-search" name="query" value="${escapeHtml(state.home.query)}" placeholder="搜索标题或作者">
+          <button type="submit">查找</button>
+        </form>
+      </div>
+      ${list}
+      ${pagination}
+    </section>
+
+    <section class="guide-section" id="guide" aria-labelledby="guide-title">
+      <div class="guide-intro">
+        <p class="section-kicker">START IN FOUR STEPS</p>
+        <h2 class="section-title" id="guide-title">网站很轻，<br>隐私很重。</h2>
+        <p>扩展只解决浏览器无法跨域读取微博的问题。解析、保存、搜索和导出都在前端完成。</p>
+      </div>
+      <div class="guide-steps">
+        <article class="guide-step">
+          <div>
+            <h3>安装抓取扩展</h3>
+            <p>在 Chromium 的扩展管理页打开开发者模式，选择“加载已解压的扩展程序”，指向项目中的 <code>extension/</code> 目录。</p>
+          </div>
+        </article>
+        <article class="guide-step">
+          <div>
+            <h3>确认绿色连接状态</h3>
+            <p>扩展成功注入后，首页会显示“抓取扩展已连接”。扩展只响应微存页面发出的固定微博接口请求。</p>
+          </div>
+        </article>
+        <article class="guide-step">
+          <div>
+            <h3>粘贴文章并保存</h3>
+            <p>公开文章通常无需凭据。登录内容可以把 Token 或 Cookie 保存到本地访问设置，再重新尝试。</p>
+          </div>
+        </article>
+        <article class="guide-step">
+          <div>
+            <h3>阅读、更新与带走</h3>
+            <p>同一链接会自动检查后续；归档可以导出为 TXT、Markdown 或 JSON，也可以随时从本机删除。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+async function renderHome({ preserveScroll = false } = {}) {
+  if (!preserveScroll) loadingPage();
+  try {
+    const data = await archive.listArticles({
+      query: state.home.query,
+      page: state.home.page,
+      limit: 12
+    });
+    app.innerHTML = homeTemplate(data);
+    bindHomeEvents();
+    const section = ['#archive', '#guide'].includes(location.hash) ? location.hash : '';
+    if (section && !preserveScroll) {
+      requestAnimationFrame(() => document.querySelector(section)?.scrollIntoView());
+    }
+  } catch (error) {
+    app.innerHTML = `<div class="loading-page"><p class="reader-error">${escapeHtml(error.message)}</p></div>`;
+  }
+}
+
+function setProgress(status, message, detail = '') {
+  const progress = document.querySelector('#capture-progress');
+  if (!progress) return;
+  progress.hidden = false;
+  progress.className = `job-progress is-${status}`;
+  progress.querySelector('strong').textContent = message;
+  progress.querySelector('span:last-child').textContent =
+    detail || '每完成一篇都会立即写入这个浏览器。';
+}
+
+async function saveCredentials(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.credentials = {
+    token: String(values.token || '').trim(),
+    cookie: String(values.cookie || '').trim()
+  };
+  await archive.setSetting('credentials', state.credentials);
+}
+
+function bindHomeEvents() {
+  document.querySelector('#credentials-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveCredentials(event.currentTarget);
+    showToast('访问设置已保存在这个浏览器。');
+  });
+
+  const captureForm = document.querySelector('#capture-form');
+  captureForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const errorElement = document.querySelector('#capture-error');
+    const submitButton = captureForm.querySelector('button[type="submit"]');
+    const payload = Object.fromEntries(new FormData(captureForm).entries());
+    errorElement.hidden = true;
+
+    if (!payload.url?.trim()) {
+      errorElement.textContent = '请先粘贴一篇微博文章链接。';
+      errorElement.hidden = false;
+      document.querySelector('#article-url').focus();
+      return;
+    }
+    if (!state.extensionConnected) {
+      state.extensionConnected = await bridge.ping();
+      if (!state.extensionConnected) {
+        errorElement.textContent = '还没有检测到抓取扩展。请先按下方说明安装并刷新页面。';
+        errorElement.hidden = false;
+        document.querySelector('#guide')?.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = '正在保存';
+    setProgress('running', '正在连接微博…');
+    try {
+      const result = await crawler.archiveFromUrl({
+        ...payload,
+        credentials: state.credentials,
+        onProgress: (progress) => {
+          setProgress('running', progress.message, `已经处理到第 ${progress.current} 篇。`);
+        }
+      });
+      setProgress(
+        'completed',
+        result.added ? `完成，共新增 ${result.added} 篇。` : '已是最新，没有发现后续。',
+        '正在打开本地阅读页…'
+      );
+      setTimeout(() => {
+        location.hash = `#/articles/${result.article.id}`;
+      }, 450);
+    } catch (error) {
+      setProgress('failed', '这次没有保存成功', error.message);
+      errorElement.textContent = error.message;
+      errorElement.hidden = false;
+      submitButton.disabled = false;
+      submitButton.textContent = '保存到本机';
+    }
+  });
+
+  document.querySelector('#search-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    state.home.query = String(new FormData(event.currentTarget).get('query') || '').trim();
+    state.home.page = 1;
+    renderHome({ preserveScroll: true });
+  });
+
+  document.querySelector('#backup-all')?.addEventListener('click', async () => {
+    const backup = await archive.createBackup();
+    downloadBackup(backup);
+    showToast(`已备份 ${backup.articles.length} 份本地归档。`);
+  });
+
+  document.querySelector('#restore-backup')?.addEventListener('change', async (event) => {
+    const [file] = event.currentTarget.files;
+    if (!file) return;
+    try {
+      if (file.size > 50 * 1024 * 1024) throw new Error('备份文件超过 50 MB，无法在浏览器中安全导入。');
+      const result = await archive.restoreBackup(JSON.parse(await file.text()));
+      showToast(`已恢复 ${result.articles} 份归档、${result.chapters} 篇正文。`);
+      await renderHome({ preserveScroll: true });
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      event.currentTarget.value = '';
+    }
+  });
+
+  document.querySelectorAll('[data-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.home.page = Number(button.dataset.page);
+      renderHome();
+    });
+  });
+}
+
+function detailTemplate(article, chapters) {
+  const chapterButtons = chapters.map((chapter) => `
+    <button class="chapter-button${chapter.index === state.activeChapter ? ' is-active' : ''}" type="button" data-chapter="${chapter.index}">
+      <span>${String(chapter.index).padStart(2, '0')}</span>
+      <span>${escapeHtml(chapter.title)}</span>
+    </button>
+  `).join('');
+
+  return `
+    <article class="article-shell">
+      <a class="article-back" href="#archive">← 返回归档</a>
+      <header class="article-header">
+        <div>
+          <span class="article-label">${article.status === 'error' ? 'NEEDS ATTENTION' : 'LOCAL ARCHIVE'}</span>
+          <h1 class="article-heading">${escapeHtml(article.title)}</h1>
+          ${article.author ? `<p class="article-byline">作者 · ${escapeHtml(article.author)}</p>` : ''}
+        </div>
+        <dl class="article-facts">
+          <div><dt>篇数</dt><dd>${article.chapterCount || 0} 篇</dd></div>
+          <div><dt>首次保存</dt><dd>${formatDate(article.createdAt)}</dd></div>
+          <div><dt>最近更新</dt><dd>${formatDate(article.updatedAt)}</dd></div>
+          <div><dt>存储位置</dt><dd>当前浏览器</dd></div>
+          <div><dt>来源</dt><dd><a href="${escapeHtml(article.sourceUrl)}" target="_blank" rel="noreferrer">查看微博原文 ↗</a></dd></div>
+        </dl>
+      </header>
+
+      <div class="article-actions">
+        <button class="secondary-button" id="refresh-article" type="button">检查更新</button>
+        <details class="download-group">
+          <summary class="secondary-button">导出归档</summary>
+          <div class="download-menu">
+            <button type="button" data-export="txt">TXT 文本</button>
+            <button type="button" data-export="md">Markdown</button>
+            <button type="button" data-export="json">JSON 数据</button>
+          </div>
+        </details>
+        <details class="download-group metadata-editor">
+          <summary class="text-button">编辑资料</summary>
+          <form class="download-menu" id="metadata-form">
+            <label class="field">
+              <span>标题</span>
+              <input name="title" value="${escapeHtml(article.title)}" required>
+            </label>
+            <label class="field">
+              <span>作者</span>
+              <input name="author" value="${escapeHtml(article.author)}">
+            </label>
+            <label class="field">
+              <span>说明</span>
+              <textarea name="description">${escapeHtml(article.description)}</textarea>
+            </label>
+            <button class="secondary-button" type="submit">保存资料</button>
+          </form>
+        </details>
+        <button class="text-button danger-button" id="delete-article" type="button">从本机删除</button>
+      </div>
+
+      ${article.errorMessage ? `<p class="form-error">${escapeHtml(article.errorMessage)}</p>` : ''}
+      ${article.description ? `<p class="hero-copy article-description">${escapeHtml(article.description)}</p>` : ''}
+
+      <div class="reader-layout">
+        <nav class="chapter-nav" aria-label="文章目录">
+          <p class="chapter-nav-title">CONTENTS · ${chapters.length}</p>
+          <div class="chapter-list">${chapterButtons}</div>
+        </nav>
+        <section class="reader" id="reader" aria-live="polite">
+          <div class="loading-line"></div>
+        </section>
+      </div>
+    </article>
+  `;
+}
+
+function contentHtml(content) {
+  return String(content || '')
+    .split(/\n{2,}/)
+    .filter((paragraph) => paragraph.trim())
+    .map((paragraph) => {
+      const clean = paragraph.trim();
+      if (/^\[图片[：:].*\]$|^\[图片\]$/.test(clean)) {
+        return `<span class="image-marker">${escapeHtml(clean)}</span>`;
+      }
+      return `<p>${escapeHtml(clean).replaceAll('\n', '<br>')}</p>`;
+    })
+    .join('');
+}
+
+async function loadChapter(index) {
+  const reader = document.querySelector('#reader');
+  if (!reader || !state.article) return;
+  state.activeChapter = index;
+  document.querySelectorAll('[data-chapter]').forEach((button) => {
+    button.classList.toggle('is-active', Number(button.dataset.chapter) === index);
+  });
+  reader.innerHTML = '<div class="loading-line"></div>';
+  try {
+    const chapter = await archive.getChapter(state.article.id, index);
+    if (!chapter) throw new Error('没有在本机找到这一篇正文。');
+    reader.innerHTML = `
+      <p class="reader-chapter-number">CHAPTER ${String(index).padStart(2, '0')}</p>
+      <h2 class="reader-title">${escapeHtml(chapter.title)}</h2>
+      <div class="reader-content">${contentHtml(chapter.content)}</div>
+      <nav class="chapter-pager" aria-label="前后篇">
+        <button type="button" data-go-chapter="${index - 1}" ${index <= 1 ? 'disabled' : ''}>← 上一篇</button>
+        <button type="button" data-go-chapter="${index + 1}" ${index >= state.chapters.length ? 'disabled' : ''}>下一篇 →</button>
+      </nav>
+    `;
+    reader.querySelectorAll('[data-go-chapter]').forEach((button) => {
+      button.addEventListener('click', () => {
+        loadChapter(Number(button.dataset.goChapter));
+        document.querySelector('.reader-layout')?.scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+  } catch (error) {
+    reader.innerHTML = `<p class="reader-error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function bindDetailEvents() {
+  document.querySelectorAll('[data-chapter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      loadChapter(Number(button.dataset.chapter));
+      if (window.innerWidth < 768) {
+        document.querySelector('#reader')?.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  });
+
+  document.querySelector('#refresh-article')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = '正在检查…';
+    try {
+      const result = await crawler.refresh({
+        articleId: state.article.id,
+        credentials: state.credentials,
+        onProgress: (progress) => {
+          button.textContent = progress.message;
+        }
+      });
+      showToast(result.added ? `完成，共新增 ${result.added} 篇。` : '已是最新，没有发现后续。');
+      await renderArticle(state.article.id);
+    } catch (error) {
+      showToast(error.message);
+      button.disabled = false;
+      button.textContent = '检查更新';
+    }
+  });
+
+  document.querySelectorAll('[data-export]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const chapters = await archive.listChapters(state.article.id, { includeContent: true });
+      downloadArchive(state.article, chapters, button.dataset.export);
+      button.closest('details')?.removeAttribute('open');
+    });
+  });
+
+  document.querySelector('#metadata-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const article = await archive.getArticle(state.article.id);
+    article.title = String(values.title || '').trim() || article.title;
+    article.author = String(values.author || '').trim();
+    article.description = String(values.description || '').trim();
+    article.updatedAt = new Date().toISOString();
+    await archive.putArticle(article);
+    showToast('资料已经保存在本机。');
+    await renderArticle(article.id);
+  });
+
+  document.querySelector('#delete-article')?.addEventListener('click', () => {
+    const shell = document.querySelector('.article-shell');
+    shell.style.opacity = '0.35';
+    shell.style.pointerEvents = 'none';
+    const articleId = state.article.id;
+    state.pendingDelete = articleId;
+    let cancelled = false;
+    const deletionTimer = setTimeout(async () => {
+      if (cancelled) return;
+      await archive.deleteArticle(articleId);
+      state.pendingDelete = null;
+      location.hash = '#archive';
+    }, 5000);
+    showToast('本地归档将在 5 秒后删除。', '撤销删除', () => {
+      cancelled = true;
+      clearTimeout(deletionTimer);
+      state.pendingDelete = null;
+      shell.style.opacity = '';
+      shell.style.pointerEvents = '';
+    });
+  });
+}
+
+async function renderArticle(id) {
+  loadingPage();
+  try {
+    const article = await archive.getArticle(id);
+    if (!article) throw new Error('没有在这个浏览器中找到这份归档。');
+    const chapters = await archive.listChapters(id);
+    state.article = article;
+    state.chapters = chapters;
+    state.activeChapter = Math.min(
+      Math.max(1, state.activeChapter),
+      Math.max(1, chapters.length)
+    );
+    app.innerHTML = detailTemplate(article, chapters);
+    bindDetailEvents();
+    if (chapters.length) await loadChapter(state.activeChapter);
+    else document.querySelector('#reader').innerHTML = '<p class="reader-error">这份归档还没有正文。</p>';
+    document.title = `${article.title}｜微存`;
+  } catch (error) {
+    app.innerHTML = `
+      <div class="loading-page">
+        <div>
+          <p class="reader-error">${escapeHtml(error.message)}</p>
+          <a class="secondary-button" href="#/">返回首页</a>
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function route() {
+  const articleMatch = location.hash.match(/^#\/articles\/([0-9a-f-]+)$/i);
+  if (articleMatch) {
+    await renderArticle(articleMatch[1]);
+    return;
+  }
+  document.title = '微存｜把散落的长文收进自己的书页';
+  await renderHome();
+}
+
+async function initialize() {
+  state.credentials = await archive.getSetting('credentials', { cookie: '', token: '' });
+  state.extensionConnected = await bridge.ping();
+  window.addEventListener('weicun:extension-ready', async () => {
+    state.extensionConnected = true;
+    const badge = document.querySelector('.extension-status');
+    if (badge) {
+      badge.className = 'extension-status is-connected';
+      badge.innerHTML = '<i aria-hidden="true"></i>抓取扩展已连接';
+    }
+  });
+  window.addEventListener('hashchange', route);
+  await route();
+}
+
+initialize();

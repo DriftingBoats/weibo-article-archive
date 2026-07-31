@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "微存抓取扩展",
+  "version": "1.0.0",
+  "description": "为微存网站读取用户有权访问的微博长文。数据只返回当前浏览器中的微存页面。",
+  "permissions": [
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://weibo.com/*",
+    "https://*.weibo.com/*",
+    "https://m.weibo.cn/*",
+    "https://api.weibo.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://driftingboats.github.io/weibo-article-archive/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "微存抓取扩展",
+    "default_popup": "popup.html"
+  }
+}
