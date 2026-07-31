@@ -7,6 +7,7 @@ export class ExtensionBridge {
     this.window = targetWindow;
     this.pending = new Map();
     this.connected = false;
+    this.sessionStatus = null;
     this.window.addEventListener('message', (event) => this.handleMessage(event));
   }
 
@@ -44,11 +45,13 @@ export class ExtensionBridge {
 
   async ping() {
     try {
-      await this.request('PING', {}, 1200);
+      const result = await this.request('PING', {}, 2000);
       this.connected = true;
+      this.sessionStatus = result.session || null;
       return true;
     } catch {
       this.connected = false;
+      this.sessionStatus = null;
       return false;
     }
   }

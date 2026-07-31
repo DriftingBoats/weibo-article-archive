@@ -18,6 +18,7 @@ const state = {
   activeChapter: 1,
   pendingDelete: null,
   extensionConnected: false,
+  weiboSession: null,
   credentials: { cookie: '', token: '' },
   ocrEnabled: true
 };
@@ -79,10 +80,15 @@ function loadingPage() {
 }
 
 function extensionBadge() {
+  const label = !state.extensionConnected
+    ? '等待连接抓取扩展'
+    : state.weiboSession?.available
+      ? '扩展已连接 · 微博登录可用'
+      : '扩展已连接 · 未检测到微博登录';
   return `
     <span class="extension-status ${state.extensionConnected ? 'is-connected' : 'is-disconnected'}">
       <i aria-hidden="true"></i>
-      ${state.extensionConnected ? '抓取扩展已连接' : '等待连接抓取扩展'}
+      ${label}
     </span>
   `;
 }
@@ -374,6 +380,7 @@ function bindHomeEvents() {
     }
     if (!state.extensionConnected) {
       state.extensionConnected = await bridge.ping();
+      state.weiboSession = bridge.sessionStatus;
       if (!state.extensionConnected) {
         errorElement.textContent = '还没有检测到抓取扩展。请先按下方说明安装并刷新页面。';
         errorElement.hidden = false;
@@ -741,12 +748,15 @@ async function initialize() {
   state.credentials = await archive.getSetting('credentials', { cookie: '', token: '' });
   state.ocrEnabled = await archive.getSetting('ocrEnabled', true);
   state.extensionConnected = await bridge.ping();
+  state.weiboSession = bridge.sessionStatus;
   window.addEventListener('weicun:extension-ready', async () => {
-    state.extensionConnected = true;
+    state.extensionConnected = await bridge.ping();
+    state.weiboSession = bridge.sessionStatus;
     const badge = document.querySelector('.extension-status');
     if (badge) {
-      badge.className = 'extension-status is-connected';
-      badge.innerHTML = '<i aria-hidden="true"></i>抓取扩展已连接';
+      const replacement = document.createElement('template');
+      replacement.innerHTML = extensionBadge().trim();
+      badge.replaceWith(replacement.content.firstElementChild);
     }
   });
   window.addEventListener('hashchange', route);

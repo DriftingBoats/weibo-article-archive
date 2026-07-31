@@ -1,4 +1,5 @@
 import { senderIsAllowed } from './security.js';
+import { getWeiboSessionStatus } from './session.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -201,9 +202,16 @@ async function fetchImage(payload) {
 }
 
 async function handleMessage(message, sender) {
+  if (message?.type === 'GET_WEIBO_SESSION_STATUS') {
+    if (sender.id !== chrome.runtime.id) throw new Error('只有微存扩展可以读取登录状态。');
+    return getWeiboSessionStatus();
+  }
   if (!senderIsAllowed(sender)) throw new Error('当前网站没有连接扩展的权限。');
   if (message?.type === 'PING') {
-    return { version: chrome.runtime.getManifest().version };
+    return {
+      version: chrome.runtime.getManifest().version,
+      session: await getWeiboSessionStatus()
+    };
   }
   if (message?.type === 'FETCH_ARTICLE_ENDPOINT') {
     return fetchEndpoint(message.payload || {});

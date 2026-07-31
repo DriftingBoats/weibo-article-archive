@@ -8,12 +8,45 @@
   </head>
   <body>
     <main>
-      <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
-      <p class="eyebrow">WEICUN EXTENSION</p>
-      <h1>扩展已就绪</h1>
-      <p>打开微存网站后，这个扩展会代替网页读取微博内容。文章和访问凭据仍只保存在你的浏览器中。</p>
-      <button id="open-site" type="button">打开微存网站</button>
-      <small>只允许连接本地开发地址与项目官方 GitHub Pages。</small>
+      <header class="header">
+        <div class="brand">
+          <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <strong>微存</strong>
+        </div>
+        <span class="version" id="version">v—</span>
+      </header>
+
+      <section class="intro" aria-labelledby="popup-title">
+        <p class="eyebrow">WEICUN EXTENSION</p>
+        <h1 id="popup-title">抓取扩展</h1>
+        <p>读取你有权访问的微博正文和图片，再交给微存在浏览器本地处理。</p>
+      </section>
+
+      <section class="session" id="session" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div>
+          <strong id="session-title">正在检查微博登录状态</strong>
+          <p id="session-copy">正在读取当前浏览器的 Cookie 状态…</p>
+        </div>
+      </section>
+
+      <dl class="privacy">
+        <div>
+          <dt>Cookie 用途</dt>
+          <dd>仅随请求发往微博</dd>
+        </div>
+        <div>
+          <dt>归档位置</dt>
+          <dd>当前浏览器</dd>
+        </div>
+      </dl>
+
+      <div class="actions">
+        <button class="primary" id="open-site" type="button">打开微存网站</button>
+        <button class="secondary" id="open-weibo" type="button">前往微博登录</button>
+      </div>
+
+      <p class="footnote">扩展不会向微存服务器上传 Cookie——微存没有服务器，也不会在弹窗中展示 Cookie 内容。</p>
     </main>
     <script src="popup.js"></script>
   </body>
