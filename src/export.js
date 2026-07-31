@@ -7,10 +7,41 @@ function metadata(article) {
   ].filter(Boolean);
 }
 
+function imageText(image) {
+  const heading = `[图片 ${image.index}${image.alt ? `：${image.alt}` : ''}]`;
+  if (image.ocrStatus === 'done' && image.ocrText) {
+    return `${heading}\n图片文字：\n${image.ocrText}`;
+  }
+  return heading;
+}
+
+function textContent(chapter) {
+  let content = String(chapter.content || '');
+  for (const image of chapter.images || []) {
+    content = content.replace(image.marker, imageText(image));
+  }
+  return content;
+}
+
+function markdownContent(chapter) {
+  let content = String(chapter.content || '');
+  for (const image of chapter.images || []) {
+    const alt = String(image.alt || `文章配图 ${image.index}`).replace(/[[\]]/g, '');
+    const visual = image.url
+      ? `![${alt}](${image.url})`
+      : `[图片 ${image.index}${image.alt ? `：${image.alt}` : ''}]`;
+    const ocr = image.ocrStatus === 'done' && image.ocrText
+      ? `\n\n**图片文字**\n\n${image.ocrText}`
+      : '';
+    content = content.replace(image.marker, `${visual}${ocr}`);
+  }
+  return content;
+}
+
 export function renderText(article, chapters) {
   const lines = [article.title, ...metadata(article), ''];
   chapters.forEach((chapter) => {
-    lines.push(`第 ${chapter.index} 篇｜${chapter.title}`, '', chapter.content, '');
+    lines.push(`第 ${chapter.index} 篇｜${chapter.title}`, '', textContent(chapter), '');
   });
   return `${lines.join('\n').trim()}\n`;
 }
@@ -18,7 +49,7 @@ export function renderText(article, chapters) {
 export function renderMarkdown(article, chapters) {
   const lines = [`# ${article.title}`, '', ...metadata(article).map((line) => `> ${line}`), ''];
   chapters.forEach((chapter) => {
-    lines.push(`## ${chapter.title}`, '', chapter.content, '');
+    lines.push(`## ${chapter.title}`, '', markdownContent(chapter), '');
   });
   return `${lines.join('\n').trim()}\n`;
 }

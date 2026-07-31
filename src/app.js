@@ -1,13 +1,15 @@
 import { LocalArchive } from './storage.js';
 import { ExtensionBridge } from './extension-bridge.js';
 import { BrowserCrawler } from './crawler.js';
+import { LocalImageOcr } from './ocr.js';
 import { downloadArchive, downloadBackup } from './export.js';
 
 const app = document.querySelector('#app');
 const toastRegion = document.querySelector('#toast-region');
 const archive = new LocalArchive();
 const bridge = new ExtensionBridge();
-const crawler = new BrowserCrawler({ archive, bridge });
+const imageOcr = new LocalImageOcr({ bridge });
+const crawler = new BrowserCrawler({ archive, bridge, ocr: imageOcr });
 
 const state = {
   home: { query: '', page: 1 },
@@ -16,7 +18,8 @@ const state = {
   activeChapter: 1,
   pendingDelete: null,
   extensionConnected: false,
-  credentials: { cookie: '', token: '' }
+  credentials: { cookie: '', token: '' },
+  ocrEnabled: true
 };
 
 function escapeHtml(value) {
@@ -139,11 +142,12 @@ function homeTemplate(data) {
           <p class="eyebrow">LOCAL-FIRST · OPEN SOURCE</p>
           ${extensionBadge()}
         </div>
-        <div>
-          <h1 class="hero-title" id="hero-title">把散落的长文，收进自己的<em>书页</em>。</h1>
-          <p class="hero-copy">粘贴一篇微博长文，微存会寻找后续、整理正文。没有账号系统，没有云端数据库，所有归档都只在你的浏览器里。</p>
-        </div>
-        <div class="capture-area">
+        <div class="hero-layout">
+          <div class="hero-message">
+            <h1 class="hero-title" id="hero-title">把微博长文，<br>保存到自己的浏览器。</h1>
+            <p class="hero-copy">自动寻找后续、整理正文并保存在本机。没有账号，没有云端数据库，你的归档只属于你。</p>
+          </div>
+          <div class="capture-area">
           <form class="capture-form" id="capture-form" novalidate>
             <div class="field">
               <label for="article-url">微博文章链接</label>
@@ -160,6 +164,10 @@ function homeTemplate(data) {
             </div>
             <button class="primary-button" type="submit">保存到本机</button>
           </form>
+          <p class="capture-note">
+            <span aria-hidden="true">✓</span>
+            正文与图片文字均在浏览器本地处理
+          </p>
           <p class="form-error" id="capture-error" hidden></p>
 
           <details class="advanced-settings" id="capture-settings">
@@ -207,6 +215,17 @@ function homeTemplate(data) {
                   >
                 </div>
               </div>
+              <label class="setting-toggle">
+                <input
+                  name="ocrEnabled"
+                  type="checkbox"
+                  ${state.ocrEnabled ? 'checked' : ''}
+                >
+                <span>
+                  <strong>自动识别图片文字</strong>
+                  <small>图片由扩展读取，并在此浏览器中完成中文与英文 OCR；只保存图片地址和识别文字。</small>
+                </span>
+              </label>
               <div class="settings-footer">
                 <p class="privacy-note">凭据保存在此浏览器的 IndexedDB 中。Cookie 会由扩展导入本机的微博 Cookie 存储，不会上传到微存服务器——微存没有服务器。</p>
                 <button class="secondary-button" type="submit">保存本地设置</button>
@@ -220,6 +239,7 @@ function homeTemplate(data) {
               <strong>正在准备</strong>
               <span>每完成一篇都会立即写入本机，关闭页面前请等待当前篇完成。</span>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -262,6 +282,10 @@ function homeTemplate(data) {
           <div>
             <h3>安装抓取扩展</h3>
             <p>在 Chromium 的扩展管理页打开开发者模式，选择“加载已解压的扩展程序”，指向项目中的 <code>extension/</code> 目录。</p>
+            <a
+              class="guide-download"
+              href="https://github.com/DriftingBoats/weibo-article-archive/releases/latest/download/weicun-extension.zip"
+            >下载微存扩展 <span aria-hidden="true">↓</span></a>
           </div>
         </article>
         <article class="guide-step">
@@ -272,14 +296,14 @@ function homeTemplate(data) {
         </article>
         <article class="guide-step">
           <div>
-            <h3>粘贴文章并保存</h3>
-            <p>公开文章通常无需凭据。登录内容可以把 Token 或 Cookie 保存到本地访问设置，再重新尝试。</p>
+            <h3>保存正文与图片文字</h3>
+            <p>粘贴文章链接后，正文会立即归档；图片由扩展读取，并在当前浏览器中完成中英文 OCR。</p>
           </div>
         </article>
         <article class="guide-step">
           <div>
             <h3>阅读、更新与带走</h3>
-            <p>同一链接会自动检查后续；归档可以导出为 TXT、Markdown 或 JSON，也可以随时从本机删除。</p>
+            <p>同一链接会自动检查后续；识别结果保留在图片原位置，可导出为 TXT、Markdown 或 JSON。</p>
           </div>
         </article>
       </div>
@@ -322,7 +346,9 @@ async function saveCredentials(form) {
     token: String(values.token || '').trim(),
     cookie: String(values.cookie || '').trim()
   };
+  state.ocrEnabled = values.ocrEnabled === 'on';
   await archive.setSetting('credentials', state.credentials);
+  await archive.setSetting('ocrEnabled', state.ocrEnabled);
 }
 
 function bindHomeEvents() {
@@ -363,6 +389,7 @@ function bindHomeEvents() {
       const result = await crawler.archiveFromUrl({
         ...payload,
         credentials: state.credentials,
+        ocrEnabled: state.ocrEnabled,
         onProgress: (progress) => {
           setProgress('running', progress.message, `已经处理到第 ${progress.current} 篇。`);
         }
@@ -381,6 +408,8 @@ function bindHomeEvents() {
       errorElement.hidden = false;
       submitButton.disabled = false;
       submitButton.textContent = '保存到本机';
+    } finally {
+      await imageOcr.terminate();
     }
   });
 
@@ -448,6 +477,7 @@ function detailTemplate(article, chapters) {
 
       <div class="article-actions">
         <button class="secondary-button" id="refresh-article" type="button">检查更新</button>
+        <button class="secondary-button" id="recognize-images" type="button">识别图片文字</button>
         <details class="download-group">
           <summary class="secondary-button">导出归档</summary>
           <div class="download-menu">
@@ -493,14 +523,39 @@ function detailTemplate(article, chapters) {
   `;
 }
 
-function contentHtml(content) {
+function contentHtml(content, images = []) {
+  const imageByMarker = new Map(images.map((image) => [image.marker, image]));
   return String(content || '')
     .split(/\n{2,}/)
     .filter((paragraph) => paragraph.trim())
     .map((paragraph) => {
       const clean = paragraph.trim();
-      if (/^\[图片[：:].*\]$|^\[图片\]$/.test(clean)) {
-        return `<span class="image-marker">${escapeHtml(clean)}</span>`;
+      if (/^\[图片(?: \d+)?(?:[：:].*)?\]$/.test(clean)) {
+        const image = imageByMarker.get(clean);
+        if (!image) return `<span class="image-marker">${escapeHtml(clean)}</span>`;
+        const ocrCopy = image.ocrStatus === 'done'
+          ? `<div class="image-ocr"><span>图片文字</span><p>${escapeHtml(image.ocrText).replaceAll('\n', '<br>')}</p></div>`
+          : image.ocrStatus === 'error'
+            ? `<p class="image-ocr-note">这张图片暂未识别，可点击页面上方“识别图片文字”重试。</p>`
+            : image.ocrStatus === 'empty'
+              ? '<p class="image-ocr-note">没有在这张图片中识别到文字。</p>'
+              : '<p class="image-ocr-note">这张图片尚未进行文字识别。</p>';
+        return `
+          <figure class="archive-image">
+            <img
+              src="${escapeHtml(image.url)}"
+              alt="${escapeHtml(image.alt || `文章配图 ${image.index}`)}"
+              loading="lazy"
+              decoding="async"
+              referrerpolicy="no-referrer"
+            >
+            <figcaption>
+              <span>文章配图 ${image.index}</span>
+              <a href="${escapeHtml(image.url)}" target="_blank" rel="noreferrer">查看原图 ↗</a>
+            </figcaption>
+            ${ocrCopy}
+          </figure>
+        `;
       }
       return `<p>${escapeHtml(clean).replaceAll('\n', '<br>')}</p>`;
     })
@@ -521,7 +576,7 @@ async function loadChapter(index) {
     reader.innerHTML = `
       <p class="reader-chapter-number">CHAPTER ${String(index).padStart(2, '0')}</p>
       <h2 class="reader-title">${escapeHtml(chapter.title)}</h2>
-      <div class="reader-content">${contentHtml(chapter.content)}</div>
+      <div class="reader-content">${contentHtml(chapter.content, chapter.images || [])}</div>
       <nav class="chapter-pager" aria-label="前后篇">
         <button type="button" data-go-chapter="${index - 1}" ${index <= 1 ? 'disabled' : ''}>← 上一篇</button>
         <button type="button" data-go-chapter="${index + 1}" ${index >= state.chapters.length ? 'disabled' : ''}>下一篇 →</button>
@@ -556,6 +611,7 @@ function bindDetailEvents() {
       const result = await crawler.refresh({
         articleId: state.article.id,
         credentials: state.credentials,
+        ocrEnabled: state.ocrEnabled,
         onProgress: (progress) => {
           button.textContent = progress.message;
         }
@@ -566,6 +622,35 @@ function bindDetailEvents() {
       showToast(error.message);
       button.disabled = false;
       button.textContent = '检查更新';
+    } finally {
+      await imageOcr.terminate();
+    }
+  });
+
+  document.querySelector('#recognize-images')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = '正在准备识别…';
+    try {
+      const result = await crawler.recognizeArticleImages({
+        articleId: state.article.id,
+        credentials: state.credentials,
+        onProgress: (progress) => {
+          button.textContent = progress.message;
+        }
+      });
+      if (!result.imageCount) {
+        showToast('没有在这些文章中找到可识别的图片。');
+      } else if (!result.recognized) {
+        showToast(`已检查 ${result.imageCount} 张图片，没有新的识别结果。`);
+      } else {
+        showToast(`完成，新增识别 ${result.recognized} 张图片。`);
+      }
+      await renderArticle(state.article.id);
+    } catch (error) {
+      showToast(error.message);
+      button.disabled = false;
+      button.textContent = '识别图片文字';
     }
   });
 
@@ -654,6 +739,7 @@ async function route() {
 
 async function initialize() {
   state.credentials = await archive.getSetting('credentials', { cookie: '', token: '' });
+  state.ocrEnabled = await archive.getSetting('ocrEnabled', true);
   state.extensionConnected = await bridge.ping();
   window.addEventListener('weicun:extension-ready', async () => {
     state.extensionConnected = true;

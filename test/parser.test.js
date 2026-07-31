@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   htmlToText,
+  htmlToArchiveContent,
   looksLikeAuthWall,
   parseArticleResponse,
   parseHtmlArticle,
@@ -11,6 +12,21 @@ describe('article parsing', () => {
   it('turns article HTML into readable text', () => {
     expect(htmlToText('<p>第一段<br>换行</p><p>第二段<img alt="配图"></p>'))
       .toBe('第一段\n换行\n\n第二段\n[图片：配图]');
+  });
+
+  it('keeps image positions and source URLs for local OCR', () => {
+    const parsed = htmlToArchiveContent(`
+      <p>图片之前</p>
+      <img data-src="//wx1.sinaimg.cn/large/example.jpg" alt="聊天截图">
+      <p>图片之后</p>
+    `);
+    expect(parsed.content).toBe('图片之前\n\n[图片 1：聊天截图]\n\n图片之后');
+    expect(parsed.images).toEqual([expect.objectContaining({
+      index: 1,
+      marker: '[图片 1：聊天截图]',
+      url: 'https://wx1.sinaimg.cn/large/example.jpg',
+      ocrStatus: 'pending'
+    })]);
   });
 
   it('parses JSON content and its next article', () => {

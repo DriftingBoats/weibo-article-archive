@@ -5,11 +5,24 @@ const ENDPOINT_COUNT = 7;
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export class BrowserCrawler {
-  constructor({ archive, bridge, delayMs = 1500, maxChapters = 200 }) {
+  constructor({ archive, bridge, ocr = null, delayMs = 1500, maxChapters = 200 }) {
     this.archive = archive;
     this.bridge = bridge;
+    this.ocr = ocr;
     this.delayMs = delayMs;
     this.maxChapters = maxChapters;
+  }
+
+  async withImageOcr(fetched, enabled, onProgress, chapterIndex) {
+    if (!enabled || !this.ocr || !fetched.images?.length) return fetched;
+    const images = await this.ocr.recognizeImages(fetched.images, (progress) => {
+      onProgress({
+        ...progress,
+        current: chapterIndex,
+        message: `${progress.message}（第 ${chapterIndex} 篇）`
+      });
+    });
+    return { ...fetched, images };
   }
 
   async getArticle(articleId, credentials) {
@@ -51,6 +64,7 @@ export class BrowserCrawler {
     author = '',
     description = '',
     credentials = {},
+    ocrEnabled = true,
     onProgress = () => {}
   }) {
     const source = assertWeiboArticleUrl(url);
@@ -59,6 +73,7 @@ export class BrowserCrawler {
       return this.refresh({
         articleId: existing.id,
         credentials,
+        ocrEnabled,
         onProgress
       });
     }
@@ -83,7 +98,12 @@ export class BrowserCrawler {
           message: added ? `正在继续保存第 ${added + 1} 篇…` : '正在读取第一篇文章…',
           current: added + 1
         });
-        const fetched = await this.getArticle(currentWeiboId, credentials);
+        const fetched = await this.withImageOcr(
+          await this.getArticle(currentWeiboId, credentials),
+          ocrEnabled,
+          onProgress,
+          added + 1
+        );
         const now = new Date().toISOString();
         const resolvedTitle = title.trim() || fetched.title || `微博文章 ${currentWeiboId}`;
 
@@ -113,6 +133,7 @@ export class BrowserCrawler {
           weiboId: currentWeiboId,
           title: fetched.title || (added === 1 ? resolvedTitle : `第 ${added} 篇`),
           content: fetched.content,
+          images: fetched.images || [],
           sourceUrl: canonicalArticleUrl(currentWeiboId),
           nextUrl: fetched.nextUrl,
           crawledAt: now
@@ -136,7 +157,12 @@ export class BrowserCrawler {
     }
   }
 
-  async refresh({ articleId, credentials = {}, onProgress = () => {} }) {
+  async refresh({
+    articleId,
+    credentials = {},
+    ocrEnabled = true,
+    onProgress = () => {}
+  }) {
     const connected = await this.bridge.ping();
     if (!connected) throw new Error('还没有连接“微存抓取扩展”。请先安装并启用扩展。');
     const article = await this.archive.getArticle(articleId);
@@ -155,9 +181,15 @@ export class BrowserCrawler {
     try {
       if (!last.nextUrl) {
         onProgress({ message: '正在检查最后一篇是否有后续…', current: last.index });
-        const refreshedLast = await this.getArticle(last.weiboId, credentials);
+        const refreshedLast = await this.withImageOcr(
+          await this.getArticle(last.weiboId, credentials),
+          ocrEnabled,
+          onProgress,
+          last.index
+        );
         last.nextUrl = refreshedLast.nextUrl;
         last.content = refreshedLast.content;
+        last.images = refreshedLast.images || [];
         last.title = refreshedLast.title || last.title;
         last.crawledAt = new Date().toISOString();
         await this.archive.putChapter(last);
@@ -179,7 +211,12 @@ export class BrowserCrawler {
       ) {
         seen.add(currentWeiboId);
         onProgress({ message: `发现后续，正在保存第 ${nextIndex} 篇…`, current: nextIndex });
-        const fetched = await this.getArticle(currentWeiboId, credentials);
+        const fetched = await this.withImageOcr(
+          await this.getArticle(currentWeiboId, credentials),
+          ocrEnabled,
+          onProgress,
+          nextIndex
+        );
         const now = new Date().toISOString();
         await this.archive.putChapter({
           id: `${articleId}:${nextIndex}`,
@@ -188,6 +225,7 @@ export class BrowserCrawler {
           weiboId: currentWeiboId,
           title: fetched.title || `第 ${nextIndex} 篇`,
           content: fetched.content,
+          images: fetched.images || [],
           sourceUrl: canonicalArticleUrl(currentWeiboId),
           nextUrl: fetched.nextUrl,
           crawledAt: now
@@ -209,6 +247,59 @@ export class BrowserCrawler {
       article.errorMessage = error.message;
       await this.archive.putArticle(article);
       throw error;
+    }
+  }
+
+  async recognizeArticleImages({
+    articleId,
+    credentials = {},
+    onProgress = () => {}
+  }) {
+    if (!this.ocr) throw new Error('当前浏览器没有加载图片文字识别模块。');
+    const chapters = await this.archive.listChapters(articleId, { includeContent: true });
+    let imageCount = 0;
+    let recognized = 0;
+
+    try {
+      for (const chapter of chapters) {
+        let workingChapter = chapter;
+        if (!workingChapter.images?.length) {
+          onProgress({
+            current: chapter.index,
+            message: `正在重新读取第 ${chapter.index} 篇的图片地址…`
+          });
+          const fetched = await this.getArticle(chapter.weiboId, credentials);
+          workingChapter = {
+            ...workingChapter,
+            title: fetched.title || workingChapter.title,
+            content: fetched.content,
+            images: fetched.images || [],
+            nextUrl: fetched.nextUrl,
+            crawledAt: new Date().toISOString()
+          };
+        }
+
+        imageCount += workingChapter.images?.length || 0;
+        const before = workingChapter.images?.filter((image) =>
+          ['done', 'empty'].includes(image.ocrStatus)
+        ).length || 0;
+        workingChapter.images = await this.ocr.recognizeImages(
+          workingChapter.images || [],
+          (progress) => onProgress({
+            ...progress,
+            current: chapter.index,
+            message: `${progress.message}（第 ${chapter.index} 篇）`
+          })
+        );
+        const after = workingChapter.images.filter((image) =>
+          ['done', 'empty'].includes(image.ocrStatus)
+        ).length;
+        recognized += Math.max(0, after - before);
+        await this.archive.putChapter(workingChapter);
+      }
+      return { imageCount, recognized };
+    } finally {
+      await this.ocr.terminate();
     }
   }
 }

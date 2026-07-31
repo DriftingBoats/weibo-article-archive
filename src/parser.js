@@ -16,18 +16,51 @@ function normalizeText(value) {
     .trim();
 }
 
-function textFromNode(node) {
+function imageSource(node) {
+  const candidates = [
+    node.getAttribute('data-original'),
+    node.getAttribute('data-src'),
+    node.getAttribute('data-lazy-src'),
+    node.getAttribute('src'),
+    node.getAttribute('srcset')?.split(',')[0]?.trim().split(/\s+/)[0]
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = candidate.startsWith('//') ? `https:${candidate}` : candidate;
+    try {
+      const url = new URL(value);
+      if (['http:', 'https:'].includes(url.protocol)) return url.href;
+    } catch {
+      // Relative and malformed image sources cannot be fetched by the extension.
+    }
+  }
+  return '';
+}
+
+function textFromNode(node, images = null) {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   if (node.tagName === 'BR') return '\n';
   if (node.tagName === 'IMG') {
     const alt = node.getAttribute('alt')?.trim();
-    return `\n${alt ? `[图片：${alt}]` : '[图片]'}\n`;
+    if (!images) return `\n${alt ? `[图片：${alt}]` : '[图片]'}\n`;
+    const index = images.length + 1;
+    const marker = `[图片 ${index}${alt ? `：${alt}` : ''}]`;
+    images.push({
+      index,
+      marker,
+      url: imageSource(node),
+      alt: alt || '',
+      ocrText: '',
+      ocrStatus: 'pending',
+      ocrConfidence: null
+    });
+    return `\n${marker}\n`;
   }
   if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.tagName)) return '';
 
   let result = '';
-  for (const child of node.childNodes) result += textFromNode(child);
+  for (const child of node.childNodes) result += textFromNode(child, images);
   if (node.tagName === 'LI') result = `• ${result}`;
   return BLOCK_TAGS.has(node.tagName) ? `\n${result}\n` : result;
 }
@@ -35,6 +68,13 @@ function textFromNode(node) {
 export function htmlToText(html) {
   const document = new DOMParser().parseFromString(`<main>${html || ''}</main>`, 'text/html');
   return normalizeText(textFromNode(document.querySelector('main')));
+}
+
+export function htmlToArchiveContent(html) {
+  const document = new DOMParser().parseFromString(`<main>${html || ''}</main>`, 'text/html');
+  const images = [];
+  const content = normalizeText(textFromNode(document.querySelector('main'), images));
+  return { content, images };
 }
 
 function nextUrlFromData(data) {
@@ -62,11 +102,12 @@ export function parseJsonArticle(payload) {
     data.text ||
     data.article?.content ||
     '';
+  const parsedContent = /<[^>]+>/.test(String(rawContent))
+    ? htmlToArchiveContent(String(rawContent))
+    : { content: normalizeText(rawContent), images: [] };
   return {
     title: normalizeText(data.title || data.status_title || data.page_title || ''),
-    content: /<[^>]+>/.test(String(rawContent))
-      ? htmlToText(String(rawContent))
-      : normalizeText(rawContent),
+    ...parsedContent,
     nextUrl: nextUrlFromData(data)
   };
 }
@@ -88,10 +129,13 @@ export function parseHtmlArticle(html) {
   }
 
   let content = '';
+  let images = [];
   for (const selector of contentSelectors) {
     const element = document.querySelector(selector);
     if (!element) continue;
-    content = normalizeText(textFromNode(element));
+    const candidateImages = [];
+    content = normalizeText(textFromNode(element, candidateImages));
+    images = candidateImages;
     if (content) break;
   }
 
@@ -105,12 +149,12 @@ export function parseHtmlArticle(html) {
       break;
     }
   }
-  return { title: normalizeText(title), content, nextUrl };
+  return { title: normalizeText(title), content, images, nextUrl };
 }
 
 export function parseArticleResponse(raw) {
   const value = String(raw || '').trim();
-  if (!value) return { title: '', content: '', nextUrl: null };
+  if (!value) return { title: '', content: '', images: [], nextUrl: null };
   if (value.startsWith('{') || value.startsWith('[')) {
     try {
       return parseJsonArticle(JSON.parse(value));

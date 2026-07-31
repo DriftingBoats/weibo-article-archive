@@ -61,4 +61,8 @@ export class ExtensionBridge {
       token
     });
   }
+
+  fetchImage(url) {
+    return this.request('FETCH_WEIBO_IMAGE', { url }, 45_000);
+  }
 }

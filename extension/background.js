@@ -1,4 +1,5 @@
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 let lastImportedCookie = '';
 
 function validArticleId(value) {
@@ -148,6 +149,72 @@ async function fetchEndpoint(payload) {
   }
 }
 
+function validWeiboImageUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return (
+      url.protocol === 'https:' &&
+      (
+        url.hostname === 'sinaimg.cn' ||
+        url.hostname.endsWith('.sinaimg.cn') ||
+        url.hostname === 'weibo.com' ||
+        url.hostname.endsWith('.weibo.com')
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function bytesToBase64(bytes) {
+  const chunkSize = 32_768;
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function fetchImage(payload) {
+  const imageUrl = String(payload?.url || '');
+  if (!validWeiboImageUrl(imageUrl)) {
+    throw new Error('扩展只允许读取微博图片地址。');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(imageUrl, {
+      method: 'GET',
+      cache: 'force-cache',
+      credentials: 'include',
+      redirect: 'follow',
+      signal: controller.signal,
+      referrer: 'https://weibo.com/',
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      }
+    });
+    if (!response.ok) throw new Error(`读取图片失败（HTTP ${response.status}）。`);
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() || '';
+    if (!contentType.startsWith('image/')) throw new Error('微博返回的内容不是图片。');
+    const declaredSize = Number(response.headers.get('content-length') || 0);
+    if (declaredSize > MAX_IMAGE_BYTES) throw new Error('图片超过 10 MB，已跳过本地识别。');
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error('图片超过 10 MB，已跳过本地识别。');
+    return {
+      dataUrl: `data:${contentType};base64,${bytesToBase64(bytes)}`,
+      contentType,
+      byteLength: bytes.byteLength
+    };
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('读取微博图片超时。');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function handleMessage(message, sender) {
   if (!senderIsAllowed(sender)) throw new Error('当前网站没有连接扩展的权限。');
   if (message?.type === 'PING') {
@@ -155,6 +222,9 @@ async function handleMessage(message, sender) {
   }
   if (message?.type === 'FETCH_ARTICLE_ENDPOINT') {
     return fetchEndpoint(message.payload || {});
+  }
+  if (message?.type === 'FETCH_WEIBO_IMAGE') {
+    return fetchImage(message.payload || {});
   }
   throw new Error('扩展不支持这个请求。');
 }

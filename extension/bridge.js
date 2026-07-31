@@ -1,6 +1,6 @@
 const WEB_SOURCE = 'weicun-web';
 const EXTENSION_SOURCE = 'weicun-extension';
-const ALLOWED_TYPES = new Set(['PING', 'FETCH_ARTICLE_ENDPOINT']);
+const ALLOWED_TYPES = new Set(['PING', 'FETCH_ARTICLE_ENDPOINT', 'FETCH_WEIBO_IMAGE']);
 
 function respond(requestId, response) {
   window.postMessage({
