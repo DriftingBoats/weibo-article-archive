@@ -9,7 +9,7 @@ function validArticleId(value) {
   return typeof value === 'string' && /^\d{15,30}$/.test(value);
 }
 
-function endpoints(articleId, token) {
+function endpoints(articleId) {
   return [
     {
       url: `https://weibo.com/ttarticle/x/m/aj/detail?id=${articleId}`,
@@ -32,13 +32,7 @@ function endpoints(articleId, token) {
     {
       url: `https://weibo.com/ajax/statuses/show?id=${articleId}`,
       headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json, text/plain, */*' }
-    },
-    token
-      ? {
-          url: `https://api.weibo.com/2/statuses/show.json?id=${articleId}&access_token=${encodeURIComponent(token)}`,
-          mobile: true
-        }
-      : { unavailable: true }
+    }
   ];
 }
 
@@ -87,20 +81,17 @@ async function importCookies(cookieString) {
 }
 
 async function fetchEndpoint(payload) {
-  const { articleId, endpointIndex, cookie = '', token = '' } = payload;
+  const { articleId, endpointIndex, cookie = '' } = payload;
   if (!validArticleId(articleId)) throw new Error('文章 ID 格式不正确。');
-  if (!Number.isInteger(endpointIndex) || endpointIndex < 0 || endpointIndex > 6) {
+  if (!Number.isInteger(endpointIndex) || endpointIndex < 0 || endpointIndex > 5) {
     throw new Error('请求的微博接口不在允许范围内。');
   }
-  if (String(cookie).length > 8000 || String(token).length > 4000) {
+  if (String(cookie).length > 8000) {
     throw new Error('本地访问凭据长度异常。');
   }
 
   await importCookies(cookie);
-  const endpoint = endpoints(articleId, String(token).trim())[endpointIndex];
-  if (endpoint.unavailable) {
-    return { status: 400, body: '', endpointIndex };
-  }
+  const endpoint = endpoints(articleId)[endpointIndex];
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);

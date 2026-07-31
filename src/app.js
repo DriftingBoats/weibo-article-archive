@@ -2,6 +2,7 @@ import { LocalArchive } from './storage.js';
 import { ExtensionBridge } from './extension-bridge.js';
 import { BrowserCrawler } from './crawler.js';
 import { LocalImageOcr } from './ocr.js';
+import { cookieCredentials } from './credentials.js';
 import { downloadArchive, downloadBackup } from './export.js';
 
 const app = document.querySelector('#app');
@@ -19,7 +20,7 @@ const state = {
   pendingDelete: null,
   extensionConnected: false,
   weiboSession: null,
-  credentials: { cookie: '', token: '' },
+  credentials: { cookie: '' },
   ocrEnabled: true
 };
 
@@ -197,27 +198,16 @@ function homeTemplate(data) {
           <details class="advanced-settings local-settings" id="local-settings">
             <summary>本地访问设置</summary>
             <form id="credentials-form">
-              <div class="advanced-grid">
+              <div class="advanced-grid is-single">
                 <div class="field">
-                  <label for="weibo-token">微博访问 Token（可选）</label>
-                  <input
-                    id="weibo-token"
-                    name="token"
-                    type="password"
-                    autocomplete="off"
-                    value="${escapeHtml(state.credentials.token)}"
-                    placeholder="公开文章可以留空"
-                  >
-                </div>
-                <div class="field">
-                  <label for="weibo-cookie">微博 Cookie（可选）</label>
+                  <label for="weibo-cookie">手动 Cookie（可选）</label>
                   <input
                     id="weibo-cookie"
                     name="cookie"
                     type="password"
                     autocomplete="off"
                     value="${escapeHtml(state.credentials.cookie)}"
-                    placeholder="登录可见内容可能需要"
+                    placeholder="扩展无法读取登录状态时再填写"
                   >
                 </div>
               </div>
@@ -233,7 +223,7 @@ function homeTemplate(data) {
                 </span>
               </label>
               <div class="settings-footer">
-                <p class="privacy-note">凭据保存在此浏览器的 IndexedDB 中。Cookie 会由扩展导入本机的微博 Cookie 存储，不会上传到微存服务器——微存没有服务器。</p>
+                <p class="privacy-note">手动 Cookie 保存在此浏览器的 IndexedDB 中，并由扩展导入本机的微博 Cookie 存储。它不会上传到微存服务器——微存没有服务器。</p>
                 <button class="secondary-button" type="submit">保存本地设置</button>
               </div>
             </form>
@@ -348,10 +338,7 @@ function setProgress(status, message, detail = '') {
 
 async function saveCredentials(form) {
   const values = Object.fromEntries(new FormData(form).entries());
-  state.credentials = {
-    token: String(values.token || '').trim(),
-    cookie: String(values.cookie || '').trim()
-  };
+  state.credentials = cookieCredentials(values);
   state.ocrEnabled = values.ocrEnabled === 'on';
   await archive.setSetting('credentials', state.credentials);
   await archive.setSetting('ocrEnabled', state.ocrEnabled);
@@ -745,7 +732,11 @@ async function route() {
 }
 
 async function initialize() {
-  state.credentials = await archive.getSetting('credentials', { cookie: '', token: '' });
+  const savedCredentials = await archive.getSetting('credentials', { cookie: '' });
+  state.credentials = cookieCredentials(savedCredentials);
+  if (JSON.stringify(savedCredentials) !== JSON.stringify(state.credentials)) {
+    await archive.setSetting('credentials', state.credentials);
+  }
   state.ocrEnabled = await archive.getSetting('ocrEnabled', true);
   state.extensionConnected = await bridge.ping();
   state.weiboSession = bridge.sessionStatus;

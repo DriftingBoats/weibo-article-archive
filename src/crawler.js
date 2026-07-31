@@ -1,7 +1,7 @@
 import { canonicalArticleUrl, extractArticleId, assertWeiboArticleUrl } from './url.js';
 import { looksLikeAuthWall, parseArticleResponse } from './parser.js';
 
-const ENDPOINT_COUNT = 7;
+const ENDPOINT_COUNT = 6;
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export class BrowserCrawler {
@@ -33,7 +33,7 @@ export class BrowserCrawler {
         const response = await this.bridge.fetchEndpoint({
           articleId,
           endpointIndex,
-          ...credentials
+          cookie: credentials.cookie || ''
         });
         if ([401, 403].includes(response.status) || looksLikeAuthWall(response.body)) {
           sawAuthWall = true;
@@ -49,11 +49,11 @@ export class BrowserCrawler {
         firstError ||= error.message;
       }
     }
-    if (sawAuthWall && !credentials.cookie && !credentials.token) {
+    if (sawAuthWall && !credentials.cookie) {
       throw new Error('微博要求登录后查看。请在“本地访问设置”中保存 Cookie，或先登录微博后重试。');
     }
     if (sawAuthWall) {
-      throw new Error('微博拒绝了当前访问凭据。请更新本地 Cookie 或 Token 后重试。');
+      throw new Error('微博拒绝了当前登录状态。请重新登录微博或更新本地 Cookie 后重试。');
     }
     throw new Error(`没有读取到文章正文。${firstError ? `最后一次返回：${firstError}。` : ''}`);
   }

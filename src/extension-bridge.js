@@ -56,12 +56,11 @@ export class ExtensionBridge {
     }
   }
 
-  fetchEndpoint({ articleId, endpointIndex, cookie = '', token = '' }) {
+  fetchEndpoint({ articleId, endpointIndex, cookie = '' }) {
     return this.request('FETCH_ARTICLE_ENDPOINT', {
       articleId,
       endpointIndex,
-      cookie,
-      token
+      cookie
     });
   }
 

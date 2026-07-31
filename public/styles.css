@@ -460,6 +460,10 @@ main {
   gap: var(--space-4);
 }
 
+.advanced-grid.is-single {
+  grid-template-columns: 1fr;
+}
+
 .privacy-note,
 .form-note {
   margin: 0;

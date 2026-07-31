@@ -43,9 +43,8 @@ describe('local IndexedDB archive', () => {
 
   it('keeps credentials in the local settings store', async () => {
     const storage = new LocalArchive(indexedDB, `weicun-settings-${crypto.randomUUID()}`);
-    await storage.setSetting('credentials', { token: 'local-token', cookie: 'SUB=local' });
+    await storage.setSetting('credentials', { cookie: 'SUB=local' });
     expect(await storage.getSetting('credentials')).toEqual({
-      token: 'local-token',
       cookie: 'SUB=local'
     });
   });
@@ -67,7 +66,7 @@ describe('local IndexedDB archive', () => {
       updatedAt: now,
       lastCheckedAt: now
     });
-    await source.setSetting('credentials', { token: 'must-not-export', cookie: 'SUB=secret' });
+    await source.setSetting('credentials', { cookie: 'SUB=secret' });
 
     const backup = await source.createBackup();
     expect(backup).not.toHaveProperty('settings');
