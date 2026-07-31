@@ -86,7 +86,7 @@ async function verifiedWeiboSessionStatus({ force = false } = {}) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(() => controller.abort(), 4_000);
   try {
     const { response } = await fetchWithBrowserCookies(WEIBO_SESSION_PROBE_URL, {
       method: 'GET',

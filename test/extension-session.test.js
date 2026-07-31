@@ -57,6 +57,13 @@ describe('Weibo session detection', () => {
       verified: true
     });
     expect(interpretWeiboSessionProbe(200, {
+      ok: 1,
+      data: { config: {} }
+    })).toEqual({
+      authenticated: true,
+      verified: true
+    });
+    expect(interpretWeiboSessionProbe(200, {
       data: { login: false }
     })).toEqual({
       authenticated: false,

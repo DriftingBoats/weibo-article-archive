@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "微存抓取扩展",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "使用当前浏览器的微博登录状态读取长文与图片，并交给微存在本地归档。",
   "permissions": [
     "cookies",

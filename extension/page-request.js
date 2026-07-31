@@ -61,13 +61,23 @@ async function runInWeiboPage(
   origin,
   func,
   args,
-  { tabsApi, scriptingApi, createUrl = `${origin}/` }
+  {
+    tabsApi,
+    scriptingApi,
+    createUrl = `${origin}/`,
+    maxExistingTabs = 2,
+    tabLoadTimeoutMs = 8_000,
+    createAfterExistingFailure = true
+  }
 ) {
-  const matches = (await tabsApi.query({ url: `${origin}/*` })).filter(hasTabId);
+  const matches = (await tabsApi.query({ url: `${origin}/*` }))
+    .filter(hasTabId)
+    .sort((left, right) => Number(Boolean(right.active)) - Number(Boolean(left.active)))
+    .slice(0, maxExistingTabs);
   let lastError = null;
 
   async function execute(tab) {
-    await waitForTab(tab.id, tabsApi);
+    await waitForTab(tab.id, tabsApi, tabLoadTimeoutMs);
     const [execution] = await scriptingApi.executeScript({
       target: { tabId: tab.id },
       world: 'MAIN',
@@ -87,6 +97,10 @@ async function runInWeiboPage(
     } catch (error) {
       lastError = error;
     }
+  }
+
+  if (matches.length > 0 && !createAfterExistingFailure) {
+    throw lastError || new Error('现有微博页面无法执行登录验证。');
   }
 
   const tab = await tabsApi.create({
@@ -154,7 +168,9 @@ export async function fetchInWeiboPage(
     {
       tabsApi,
       scriptingApi,
-      createUrl: pageUrl || `${target.origin}/`
+      createUrl: pageUrl || `${target.origin}/`,
+      maxExistingTabs: 2,
+      tabLoadTimeoutMs: 8_000
     }
   );
   if (!result?.ok) throw new Error(result?.error || '微博页面没有返回有效响应。');
@@ -188,13 +204,15 @@ export async function probeWeiboSessionInPage(
         return uid ? String(uid) : '';
       }
 
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
       try {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        for (let attempt = 0; attempt < 5; attempt += 1) {
           const uid = currentUid();
           if (uid) {
             return { ok: true, status: 200, body: '', uid, source: 'page-store' };
           }
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 150));
         }
 
         const response = await fetch('/ajax/config/get_config', {
@@ -202,6 +220,7 @@ export async function probeWeiboSessionInPage(
           credentials: 'include',
           cache: 'no-store',
           redirect: 'follow',
+          signal: controller.signal,
           headers: {
             Accept: 'application/json, text/plain, */*',
             'X-Requested-With': 'XMLHttpRequest'
@@ -223,10 +242,18 @@ export async function probeWeiboSessionInPage(
           source: 'page-error',
           error: error.message || '微博页面登录验证失败。'
         };
+      } finally {
+        clearTimeout(timeout);
       }
     },
     [],
-    { tabsApi, scriptingApi }
+    {
+      tabsApi,
+      scriptingApi,
+      maxExistingTabs: 1,
+      tabLoadTimeoutMs: 5_000,
+      createAfterExistingFailure: false
+    }
   );
   if (!result?.ok) throw new Error(result?.error || '微博页面登录验证失败。');
   return result;

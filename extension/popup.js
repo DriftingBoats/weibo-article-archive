@@ -8,7 +8,11 @@ document.querySelector('#version').textContent = `v${chrome.runtime.getManifest(
 
 function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('登录验证超过 12 秒，已停止等待。'));
+    }, 12_000);
     chrome.runtime.sendMessage(message, (response) => {
+      clearTimeout(timeout);
       const runtimeError = chrome.runtime.lastError;
       if (runtimeError) {
         reject(new Error(runtimeError.message));

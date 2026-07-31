@@ -68,5 +68,8 @@ export function interpretWeiboSessionProbe(status, payload = null) {
   if ([false, 0, '0'].includes(login)) {
     return { authenticated: false, verified: true };
   }
+  if ([1, '1'].includes(payload?.ok) && payload?.data && typeof payload.data === 'object') {
+    return { authenticated: true, verified: true };
+  }
   return { authenticated: false, verified: false };
 }
