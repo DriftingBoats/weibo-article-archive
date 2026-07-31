@@ -27,6 +27,7 @@ export class BrowserCrawler {
 
   async getArticle(articleId, credentials) {
     let sawAuthWall = false;
+    let sawBrowserLogin = false;
     let firstError = '';
     for (let endpointIndex = 0; endpointIndex < ENDPOINT_COUNT; endpointIndex += 1) {
       try {
@@ -35,6 +36,7 @@ export class BrowserCrawler {
           endpointIndex,
           cookie: credentials.cookie || ''
         });
+        sawBrowserLogin ||= Boolean(response.session?.available);
         if ([401, 403].includes(response.status) || looksLikeAuthWall(response.body)) {
           sawAuthWall = true;
           continue;
@@ -49,11 +51,11 @@ export class BrowserCrawler {
         firstError ||= error.message;
       }
     }
-    if (sawAuthWall && !credentials.cookie) {
+    if (sawAuthWall && !sawBrowserLogin && !credentials.cookie) {
       throw new Error('微博要求登录后查看。请在“本地访问设置”中保存 Cookie，或先登录微博后重试。');
     }
     if (sawAuthWall) {
-      throw new Error('微博拒绝了当前登录状态。请重新登录微博或更新本地 Cookie 后重试。');
+      throw new Error('检测到了微博登录 Cookie，但微博接口仍然拒绝访问。请在微博退出后重新登录，再刷新微存重试。');
     }
     throw new Error(`没有读取到文章正文。${firstError ? `最后一次返回：${firstError}。` : ''}`);
   }

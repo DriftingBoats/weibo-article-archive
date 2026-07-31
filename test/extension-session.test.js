@@ -17,10 +17,11 @@ describe('Weibo session detection', () => {
 
   it('does not treat ordinary preference cookies as a login', () => {
     expect(summarizeWeiboCookies([
-      { name: 'lang', value: 'zh-cn', domain: '.weibo.com', path: '/' }
+      { name: 'lang', value: 'zh-cn', domain: '.weibo.com', path: '/' },
+      { name: '_T_WM', value: 'anonymous', domain: '.weibo.cn', path: '/' }
     ])).toEqual({
       available: false,
-      cookieCount: 1,
+      cookieCount: 2,
       loginCookieCount: 0
     });
   });

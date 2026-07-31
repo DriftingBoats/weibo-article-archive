@@ -1,10 +1,6 @@
-const LOGIN_COOKIE_NAMES = new Set([
+const PRIMARY_LOGIN_COOKIE_NAMES = new Set([
   'SUB',
-  'SUBP',
-  'WBPSESS',
-  'SCF',
-  'SSOLoginState',
-  '_T_WM'
+  'WBPSESS'
 ]);
 
 export function summarizeWeiboCookies(cookies = []) {
@@ -15,9 +11,11 @@ export function summarizeWeiboCookies(cookies = []) {
     unique.set(key, cookie);
   }
   const values = [...unique.values()];
-  const loginCookieCount = values.filter((cookie) =>
-    LOGIN_COOKIE_NAMES.has(cookie.name) && Boolean(cookie.value)
-  ).length;
+  const loginCookieCount = values.filter((cookie) => (
+    PRIMARY_LOGIN_COOKIE_NAMES.has(cookie.name) && Boolean(cookie.value)
+  ) || (
+    cookie.name === 'MLOGIN' && cookie.value === '1'
+  )).length;
   return {
     available: loginCookieCount > 0,
     cookieCount: values.length,

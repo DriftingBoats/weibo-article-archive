@@ -1,5 +1,6 @@
 import { senderIsAllowed } from './security.js';
 import { getWeiboSessionStatus } from './session.js';
+import { fetchWithBrowserCookies } from './cookie-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -96,7 +97,7 @@ async function fetchEndpoint(payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
   try {
-    const response = await fetch(endpoint.url, {
+    const { response, cookieCount, cookieRuleApplied } = await fetchWithBrowserCookies(endpoint.url, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -116,7 +117,10 @@ async function fetchEndpoint(payload) {
     return {
       status: response.status,
       body,
-      endpointIndex
+      endpointIndex,
+      session: await getWeiboSessionStatus(),
+      cookieCount,
+      cookieRuleApplied
     };
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('连接微博超时，请稍后重试。');
