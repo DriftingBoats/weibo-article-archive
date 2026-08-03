@@ -395,12 +395,16 @@ main {
 }
 
 .text-button {
+  display: inline-flex;
   min-height: 2.75rem;
   padding: 0;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
   font-size: var(--text-sm);
+  line-height: 1;
 }
 
 .text-button:hover {
@@ -419,6 +423,19 @@ main {
 .capture-note span {
   color: var(--green);
   font-weight: 700;
+}
+
+.ocr-limit-note {
+  margin: 0 0 var(--space-3);
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+.ocr-limit-note strong {
+  margin-right: var(--space-2);
+  color: var(--ink-soft);
+  font-weight: 650;
 }
 
 .advanced-settings {
@@ -1019,6 +1036,21 @@ main {
   border-bottom: 1px solid var(--line);
 }
 
+.article-actions > button,
+.article-actions > .download-group > summary {
+  min-height: 2.75rem;
+  line-height: 1;
+}
+
+.article-actions > .download-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.article-actions > .download-group > summary {
+  width: 100%;
+}
+
 .article-actions .danger-button {
   margin-left: auto;
   color: var(--ink-faint);
@@ -1026,6 +1058,11 @@ main {
 
 .article-actions .danger-button:hover {
   color: var(--red);
+}
+
+.article-ocr-limit {
+  max-width: 48rem;
+  margin-top: var(--space-3);
 }
 
 .download-group {

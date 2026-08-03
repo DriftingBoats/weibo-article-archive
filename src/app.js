@@ -225,6 +225,10 @@ function homeTemplate(data) {
             <span aria-hidden="true">✓</span>
             正文与图片文字均在浏览器本地处理
           </p>
+          <p class="ocr-limit-note">
+            <strong>图片识别提示</strong>
+            图片文字识别仅作辅助，可能有错字或遗漏；中文长图、小字和复杂排版尤其容易不准，请以原图为准。
+          </p>
           <p class="form-error" id="capture-error" hidden></p>
 
           <details class="advanced-settings" id="capture-settings">
@@ -269,7 +273,7 @@ function homeTemplate(data) {
                 >
                 <span>
                   <strong>自动识别图片文字</strong>
-                  <small>图片由扩展读取，并在此浏览器中完成中文与英文 OCR；只保存图片地址和识别文字。</small>
+                  <small>图片由扩展读取，并在此浏览器中完成识别。结果仅用于辅助检索，可能有错字或遗漏，请以原图为准。</small>
                 </span>
               </label>
               <div class="settings-footer">
@@ -521,7 +525,7 @@ function detailTemplate(article, chapters) {
 
       <div class="article-actions">
         <button class="secondary-button" id="refresh-article" type="button">检查更新</button>
-        <button class="secondary-button" id="recognize-images" type="button">识别图片文字</button>
+        <button class="secondary-button" id="recognize-images" type="button" aria-describedby="article-ocr-limit">识别图片文字</button>
         <details class="download-group">
           <summary class="secondary-button">导出归档</summary>
           <div class="download-menu">
@@ -531,7 +535,7 @@ function detailTemplate(article, chapters) {
           </div>
         </details>
         <details class="download-group metadata-editor">
-          <summary class="text-button">编辑资料</summary>
+          <summary class="secondary-button">编辑资料</summary>
           <form class="download-menu" id="metadata-form">
             <label class="field">
               <span>标题</span>
@@ -550,6 +554,10 @@ function detailTemplate(article, chapters) {
         </details>
         <button class="text-button danger-button" id="delete-article" type="button">从本机删除</button>
       </div>
+      <p class="ocr-limit-note article-ocr-limit" id="article-ocr-limit">
+        <strong>图片识别提示</strong>
+        识别结果可能有错字或遗漏，中文长图、小字和复杂排版尤其容易不准，请以原图为准。
+      </p>
 
       ${article.errorMessage ? `<p class="form-error">${escapeHtml(article.errorMessage)}</p>` : ''}
       ${article.description ? `<p class="hero-copy article-description">${escapeHtml(article.description)}</p>` : ''}
