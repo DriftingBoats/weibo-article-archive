@@ -1,10 +1,19 @@
+import { checkForUpdate } from './update.js';
+
 const session = document.querySelector('#session');
 const sessionTitle = document.querySelector('#session-title');
 const sessionCopy = document.querySelector('#session-copy');
 const refreshButton = document.querySelector('#refresh-session');
 let refreshing = false;
+const currentVersion = chrome.runtime.getManifest().version;
+const update = document.querySelector('#update');
+const updateTitle = document.querySelector('#update-title');
+const updateCopy = document.querySelector('#update-copy');
+const updateAction = document.querySelector('#update-action');
+let latestDownloadUrl = '';
+let checkingUpdate = false;
 
-document.querySelector('#version').textContent = `v${chrome.runtime.getManifest().version}`;
+document.querySelector('#version').textContent = `v${currentVersion}`;
 
 function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
@@ -67,6 +76,40 @@ async function refreshSession(force = false) {
   }
 }
 
+async function refreshUpdate() {
+  if (checkingUpdate) return;
+  checkingUpdate = true;
+  latestDownloadUrl = '';
+  update.className = 'update is-checking';
+  updateTitle.textContent = '正在检查更新';
+  updateCopy.textContent = `当前版本 v${currentVersion}`;
+  updateAction.disabled = true;
+  updateAction.textContent = '检查中…';
+  try {
+    const result = await checkForUpdate(currentVersion);
+    if (result.updateAvailable) {
+      latestDownloadUrl = result.downloadUrl;
+      update.className = 'update is-available';
+      updateTitle.textContent = `发现新版 v${result.latestVersion}`;
+      updateCopy.textContent = `当前 v${result.currentVersion}，下载后覆盖旧扩展目录。`;
+      updateAction.textContent = '下载更新';
+    } else {
+      update.className = 'update is-current';
+      updateTitle.textContent = '已是最新版';
+      updateCopy.textContent = `当前版本 v${result.currentVersion}`;
+      updateAction.textContent = '再次检查';
+    }
+  } catch (error) {
+    update.className = 'update is-error';
+    updateTitle.textContent = '暂时无法检查更新';
+    updateCopy.textContent = error.message || '请稍后重试。';
+    updateAction.textContent = '重新检查';
+  } finally {
+    checkingUpdate = false;
+    updateAction.disabled = false;
+  }
+}
+
 document.querySelector('#open-site').addEventListener('click', () => {
   chrome.tabs.create({
     url: 'https://driftingboats.github.io/weibo-article-archive/'
@@ -77,5 +120,18 @@ document.querySelector('#open-weibo').addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://weibo.com/' });
 });
 
+updateAction.addEventListener('click', () => {
+  if (!latestDownloadUrl) {
+    refreshUpdate();
+    return;
+  }
+  chrome.tabs.create({ url: latestDownloadUrl });
+  update.className = 'update is-downloading';
+  updateTitle.textContent = '新版已开始下载';
+  updateCopy.textContent = '解压覆盖旧目录，再到扩展管理页点击“重新加载”。';
+  updateAction.textContent = '再次下载';
+});
+
 refreshButton.addEventListener('click', () => refreshSession(true));
 refreshSession(false);
+refreshUpdate();
