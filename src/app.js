@@ -72,6 +72,54 @@ function showToast(message, actionLabel = '', onAction = null, duration = 5000) 
   return { toast, timer };
 }
 
+async function imageDataUrl(imageUrl) {
+  const result = await bridge.fetchImage(imageUrl);
+  if (!result?.dataUrl?.startsWith('data:image/')) {
+    throw new Error('扩展没有返回有效的图片数据。');
+  }
+  return result.dataUrl;
+}
+
+function bindArchiveImageEvents(container) {
+  container.querySelectorAll('img[data-image-source]').forEach((image) => {
+    image.addEventListener('error', async () => {
+      if (image.dataset.extensionFallback === 'pending' || image.dataset.extensionFallback === 'done') return;
+      image.dataset.extensionFallback = 'pending';
+      try {
+        image.src = await imageDataUrl(image.dataset.imageSource);
+        image.dataset.extensionFallback = 'done';
+      } catch (error) {
+        image.dataset.extensionFallback = 'failed';
+        image.closest('.archive-image')?.classList.add('has-image-error');
+        showToast(`原图读取失败：${error.message}`, '', null, 8000);
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-open-image]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const preview = window.open('about:blank', '_blank');
+      if (!preview) {
+        showToast('浏览器阻止了新窗口，请允许此网站打开新标签页。');
+        return;
+      }
+      preview.opener = null;
+      preview.document.title = '正在读取微博原图…';
+      preview.document.body.textContent = '正在通过微存扩展读取原图…';
+      try {
+        const dataUrl = await imageDataUrl(button.dataset.openImage);
+        const blob = await fetch(dataUrl).then((response) => response.blob());
+        const blobUrl = URL.createObjectURL(blob);
+        preview.location.replace(blobUrl);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      } catch (error) {
+        preview.close();
+        showToast(`原图读取失败：${error.message}`, '', null, 8000);
+      }
+    });
+  });
+}
+
 function loadingPage() {
   app.innerHTML = `
     <div class="loading-page" aria-label="正在打开页面">
@@ -532,14 +580,16 @@ function contentHtml(content, images = []) {
         const ocrCopy = image.ocrStatus === 'done'
           ? `<div class="image-ocr"><span>图片文字</span><p>${escapeHtml(image.ocrText).replaceAll('\n', '<br>')}</p></div>`
           : image.ocrStatus === 'error'
-            ? `<p class="image-ocr-note">这张图片暂未识别，可点击页面上方“识别图片文字”重试。</p>`
+            ? `<p class="image-ocr-note">识别失败：${escapeHtml(image.ocrError || '无法读取或识别这张图片。')} 可点击页面上方“识别图片文字”重试。</p>`
             : image.ocrStatus === 'empty'
               ? '<p class="image-ocr-note">没有在这张图片中识别到文字。</p>'
               : '<p class="image-ocr-note">这张图片尚未进行文字识别。</p>';
-        return `
-          <figure class="archive-image">
+        const imageUrl = String(image.url || '').trim();
+        const imageView = imageUrl
+          ? `
             <img
-              src="${escapeHtml(image.url)}"
+              src="${escapeHtml(imageUrl)}"
+              data-image-source="${escapeHtml(imageUrl)}"
               alt="${escapeHtml(image.alt || `文章配图 ${image.index}`)}"
               loading="lazy"
               decoding="async"
@@ -547,8 +597,16 @@ function contentHtml(content, images = []) {
             >
             <figcaption>
               <span>文章配图 ${image.index}</span>
-              <a href="${escapeHtml(image.url)}" target="_blank" rel="noreferrer">查看原图 ↗</a>
+              <button type="button" data-open-image="${escapeHtml(imageUrl)}">查看原图 ↗</button>
             </figcaption>
+          `
+          : `
+            <span class="image-marker">原图地址缺失</span>
+            <figcaption><span>文章配图 ${image.index}</span></figcaption>
+          `;
+        return `
+          <figure class="archive-image">
+            ${imageView}
             ${ocrCopy}
           </figure>
         `;
@@ -578,6 +636,7 @@ async function loadChapter(index) {
         <button type="button" data-go-chapter="${index + 1}" ${index >= state.chapters.length ? 'disabled' : ''}>下一篇 →</button>
       </nav>
     `;
+    bindArchiveImageEvents(reader);
     reader.querySelectorAll('[data-go-chapter]').forEach((button) => {
       button.addEventListener('click', () => {
         loadChapter(Number(button.dataset.goChapter));

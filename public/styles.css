@@ -1183,8 +1183,22 @@ main {
   font-size: var(--text-xs);
 }
 
-.archive-image figcaption a:hover {
+.archive-image figcaption button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.archive-image figcaption button:hover {
   color: var(--red);
+}
+
+.archive-image.has-image-error img {
+  min-height: 8rem;
+  opacity: 0.35;
 }
 
 .image-ocr {

@@ -12,6 +12,7 @@ import {
   probeWeiboSessionInPage,
   shouldRetryInPageContext
 } from './page-request.js';
+import { imageRequestInit, validWeiboImageUrl } from './image-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -349,23 +350,6 @@ async function fetchEndpoint(payload) {
   }
 }
 
-function validWeiboImageUrl(value) {
-  try {
-    const url = new URL(String(value || ''));
-    return (
-      url.protocol === 'https:' &&
-      (
-        url.hostname === 'sinaimg.cn' ||
-        url.hostname.endsWith('.sinaimg.cn') ||
-        url.hostname === 'weibo.com' ||
-        url.hostname.endsWith('.weibo.com')
-      )
-    );
-  } catch {
-    return false;
-  }
-}
-
 function bytesToBase64(bytes) {
   const chunkSize = 32_768;
   let binary = '';
@@ -384,17 +368,7 @@ async function fetchImage(payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch(imageUrl, {
-      method: 'GET',
-      cache: 'force-cache',
-      credentials: 'include',
-      redirect: 'follow',
-      signal: controller.signal,
-      referrer: 'https://weibo.com/',
-      headers: {
-        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-      }
-    });
+    const response = await fetch(imageUrl, imageRequestInit(controller.signal));
     if (!response.ok) throw new Error(`读取图片失败（HTTP ${response.status}）。`);
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() || '';
     if (!contentType.startsWith('image/')) throw new Error('微博返回的内容不是图片。');
