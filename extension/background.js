@@ -12,7 +12,11 @@ import {
   probeWeiboSessionInPage,
   shouldRetryInPageContext
 } from './page-request.js';
-import { imageRequestInit, validWeiboImageUrl } from './image-request.js';
+import {
+  fetchWeiboImage,
+  imageRequestInit,
+  validWeiboImageUrl
+} from './image-request.js';
 
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -368,7 +372,10 @@ async function fetchImage(payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch(imageUrl, imageRequestInit(controller.signal));
+    const response = await fetchWeiboImage(
+      imageUrl,
+      imageRequestInit(controller.signal)
+    );
     if (!response.ok) throw new Error(`读取图片失败（HTTP ${response.status}）。`);
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() || '';
     if (!contentType.startsWith('image/')) throw new Error('微博返回的内容不是图片。');
